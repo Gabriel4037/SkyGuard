@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>User Management - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; padding:18px; }
+    .card { background:#fff; padding:16px; border-radius:8px; max-width:900px; margin:12px auto; box-shadow:0 6px 18px rgba(0,0,0,0.05); }
+    table{ width:100%; border-collapse:collapse; }
+    th,td{ padding:8px; border-bottom:1px solid #eee; text-align:left; }
+    input[type=text], select, input[type=password] { padding:6px; border:1px solid #ddd; border-radius:4px; width:100%; box-sizing:border-box; }
+    .row{ display:flex; gap:8px; }
+    .row > *{ flex:1; }
+    button{ padding:8px 10px; border:0; background:#0078D7; color:#fff; border-radius:6px; cursor:pointer; }
+    .danger{ background:#ef4444; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>User Management</h2>
+    <div style="margin-top:8px;">
+    <button id="backBtn" class="ghost" style="margin-bottom:8px;">Back to Dashboard</button>
+  </div>
+    <div style="margin-bottom:12px;">
+      <strong>Create User</strong>
+      <div class="row" style="margin-top:8px;">
+        <input id="newUsername" placeholder="Username" />
+        <input id="newPassword" type="password" placeholder="Password" />
+        <select id="newRole">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+        <button id="createBtn">Create</button>
+      </div>
+      <div id="createMsg" style="color:#c00; margin-top:6px;"></div>
+    </div>
+
+    <hr/>
+
+    <div>
+      <strong>Existing Users</strong>
+      <table id="usersTable" style="margin-top:8px;">
+        <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Created At</th><th>Last Login</th><th>Actions</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const backBtn = document.getElementById('backBtn');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      window.location.replace('/index.html');
+    });
+  }
+
+    async function loadUsers() {
+      try {
+        const res = await apiFetch('/api/users', { method: 'GET' });
+        const tbody = document.querySelector('#usersTable tbody');
+        tbody.innerHTML = '';
+        if (!res.ok) {
+          tbody.innerHTML = '<tr><td colspan="6">Failed to load</td></tr>';
+          return;
+        }
+        res.users.forEach(u => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${u.id}</td>
+            <td><input data-id="${u.id}" class="u-username" value="${u.username}" /></td>
+            <td>
+              <select data-id="${u.id}" class="u-role">
+                <option ${u.role==='user'?'selected':''} value="user">user</option>
+                <option ${u.role==='admin'?'selected':''} value="admin">admin</option>
+              </select>
+            </td>
+            <td>${u.created_at || ''}</td>
+            <td>${u.last_login || ''}</td>
+            <td>
+              <button class="saveBtn" data-id="${u.id}">Save</button>
+              <button class="pwBtn" data-id="${u.id}">Change Password</button>
+              <button class="delBtn danger" data-id="${u.id}">Delete</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        // Bind events
+        document.querySelectorAll('.saveBtn').forEach(b => {
+          b.addEventListener('click', async (e) => {
+            const id = b.dataset.id;
+            const username = document.querySelector(`.u-username[data-id="${id}"]`).value.trim();
+            const role = document.querySelector(`.u-role[data-id="${id}"]`).value;
+            try {
+              const r = await apiFetch('/api/users/update', { method: 'POST', body: { id, username, role } });
+              if (r.ok) { alert('Saved successfully'); loadUsers(); }
+              else alert(r.error || 'Save failed');
+            } catch (err) { alert('Save failed'); }
+          });
+        });
+
+        document.querySelectorAll('.pwBtn').forEach(b => {
+          b.addEventListener('click', async () => {
+            const id = b.dataset.id;
+            const pwd = prompt('Enter new password (leave blank to cancel):');
+            if (!pwd) return;
+            try {
+              const r = await apiFetch('/api/users/set_password', { method: 'POST', body: { id, password: pwd } });
+              if (r.ok) alert('Password updated');
+              else alert(r.error || 'Operation failed');
+            } catch (err) { alert('Operation failed'); }
+          });
+        });
+
+        document.querySelectorAll('.delBtn').forEach(b => {
+          b.addEventListener('click', async () => {
+            const id = b.dataset.id;
+            if (!confirm('Confirm delete this user?')) return;
+            try {
+              const r = await apiFetch('/api/users/delete', { method: 'POST', body: { id } });
+              if (r.ok) { alert('Deleted successfully'); loadUsers(); }
+              else alert(r.error || 'Delete failed');
+            } catch (err) { alert('Delete failed'); }
+          });
+        });
+
+      } catch (err) {
+        console.error(err);
+        const tbody = document.querySelector('#usersTable tbody');
+        tbody.innerHTML = '<tr><td colspan="6">Failed to load</td></tr>';
+      }
+    }
+
+    document.getElementById('createBtn').addEventListener('click', async () => {
+      const username = document.getElementById('newUsername').value.trim();
+      const password = document.getElementById('newPassword').value;
+      const role = document.getElementById('newRole').value;
+      const msg = document.getElementById('createMsg');
+      msg.textContent = '';
+      if (!username || !password) { msg.textContent = 'Username and password are required'; return; }
+      try {
+        const r = await apiFetch('/api/users/create', { method: 'POST', body: { username, password, role } });
+        if (r.ok) {
+          msg.style.color = 'green';
+          msg.textContent = 'User created successfully';
+          document.getElementById('newUsername').value = '';
+          document.getElementById('newPassword').value = '';
+          loadUsers();
+        } else {
+          msg.style.color = '#c00';
+          msg.textContent = r.error || 'Creation failed';
+        }
+      } catch (err) {
+        msg.style.color = '#c00';
+        msg.textContent = 'Creation failed';
+      }
+    });
+
+    // Verify permissions on page load (redirect to login if not admin)
+    (async () => {
+      try {
+        const me = await apiFetch('/api/auth/me', { method: 'GET' });
+        if (!me || !me.user || me.user.role !== 'admin') {
+          alert('Admin permissions required');
+          window.location.replace('/login.html');
+          return;
+        }
+        loadUsers();
+      } catch (e) {
+        window.location.replace('/login.html');
+      }
+    })();
+  </script>
+</body>
+</html>

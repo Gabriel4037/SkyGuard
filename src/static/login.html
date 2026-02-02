@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; display:flex; align-items:center; justify-content:center; height:100vh; }
+    .card { background:#fff; padding:24px; width:360px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.08); }
+    h2 { margin:0 0 12px 0; font-size:20px; }
+    label { display:block; font-size:13px; margin-top:8px; }
+    input { width:100%; padding:10px; margin-top:6px; box-sizing:border-box; }
+    .row { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
+    button { padding:8px 12px; border:0; background:#0078D7; color:#fff; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#6c757d; }
+    .msg { color:#c00; margin-top:10px; min-height:18px; }
+    .link { color:#0078D7; cursor:pointer; text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <h2>Sign in</h2>
+    <label>Username</label>
+    <input id="loginUsername" type="text" autocomplete="username" />
+    <label>Password</label>
+    <input id="loginPassword" type="password" autocomplete="current-password" />
+    <div class="row">
+      <button id="gotoRegister" class="secondary">Register</button>
+      <button id="loginSubmit">Login</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    // 使用全局 authApi（来自 auth.js）
+    const { authLogin, refreshCurrentUser } = window.authApi || {};
+
+    // 防抖 / 单次跳转保护
+    function safeReplace(url) {
+      try {
+        if (window.__auth_redirecting) return;
+        window.__auth_redirecting = true;
+        // 少量延时，给 webview / 服务端时间稳定 cookie
+        setTimeout(() => {
+          window.location.replace(url);
+        }, 120);
+      } catch (e) {
+        console.warn("safeReplace error", e);
+      }
+    }
+
+    document.getElementById('loginSubmit').addEventListener('click', async () => {
+      const user = document.getElementById('loginUsername').value.trim();
+      const pwd = document.getElementById('loginPassword').value;
+      const msgEl = document.getElementById('loginMsg');
+      msgEl.textContent = '';
+      if (!user || !pwd) { msgEl.textContent = 'Username and password required'; return; }
+      try {
+        await authLogin({ username: user, password: pwd });
+        // 登录成功后安全跳转
+        safeReplace('/index.html');
+      } catch (err) {
+        msgEl.textContent = err.error || err.message || 'Login failed';
+        window.__auth_redirecting = false;
+      }
+    });
+
+    document.getElementById('gotoRegister').addEventListener('click', () => {
+      safeReplace('/register.html');
+    });
+
+    // 页面加载时检查当前登录状态；若已登录则跳转一次（使用 safeReplace）
+    (async () => {
+      try {
+        // 给服务端短暂停留时间以确保 session cookie 已经写入
+        await new Promise((r) => setTimeout(r, 80));
+        const user = await refreshCurrentUser();
+        if (user) {
+          safeReplace('/index.html');
+        }
+      } catch (e) {
+        // 忽略错误
+        window.__auth_redirecting = false;
+      }
+    })();
+  </script>
+</body>
+</html>

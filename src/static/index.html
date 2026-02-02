@@ -1,0 +1,2034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Drone Detector</title>
+  <style>
+    :root{
+      --bg:#0b0f17;
+      --panel: rgba(17,24,39,0.92);
+      --panel2: rgba(15,23,42,0.92);
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+      --accent:#22c55e;
+      --danger:#ef4444;
+      --warn:#f59e0b;
+      --line: rgba(148,163,184,0.18);
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+      --r: 14px;
+    }
+    *{ box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    body{
+      margin:0;
+      background:
+        radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,0.12), transparent 60%),
+        radial-gradient(900px 700px at 110% 10%, rgba(59,130,246,0.10), transparent 55%),
+        var(--bg);
+      color:var(--text);
+    }
+
+    header{
+      position:sticky; top:0;
+      backdrop-filter: blur(10px);
+      background: rgba(11,15,23,0.72);
+      border-bottom:1px solid var(--line);
+      z-index:50;
+    }
+    .wrap{ max-width:1300px; margin:0 auto; padding:18px 16px; }
+    .top{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .brand{ display:flex; align-items:center; gap:10px; }
+    .dot{ width:10px; height:10px; border-radius:999px; background:var(--accent); box-shadow:0 0 0 6px rgba(34,197,94,0.15); }
+    h1{ margin:0; font-size:18px; letter-spacing:0.3px; }
+    .sub{ margin:2px 0 0; font-size:12px; color:var(--muted); }
+
+    .pill{
+      font-size:12px; color:var(--muted);
+      border:1px solid var(--line);
+      padding:6px 10px; border-radius:999px;
+      background: rgba(2,6,23,0.35);
+      display:flex; align-items:center; gap:8px;
+      white-space:nowrap;
+    }
+    .btns{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    button{
+      background: rgba(2,6,23,0.5);
+      border:1px solid var(--line);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      transition: transform .06s ease, border-color .15s ease, background .15s ease;
+      font-weight:650;
+      letter-spacing:.2px;
+    }
+    button:hover{ border-color: rgba(148,163,184,0.35); }
+    button:active{ transform: translateY(1px); }
+    .primary{ background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.35); }
+    .danger{ background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.35); }
+    .ghost{ background: rgba(2,6,23,0.25); }
+
+    .container{ max-width:1300px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+    .card{
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      border:1px solid var(--line);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .card-h{
+      padding:12px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      flex-wrap:wrap;
+    }
+    .card-h b{ font-size:13px; letter-spacing:.2px; }
+    .card-b{ padding:14px; }
+
+    .viewer{
+      position:relative;
+      width:100%;
+      aspect-ratio: 16/9;
+      background: rgba(2,6,23,0.5);
+      border:1px solid var(--line);
+      border-radius:14px;
+      overflow:hidden;
+    }
+    video{ width:100%; height:100%; object-fit:contain; display:block; background: rgba(2,6,23,0.35); }
+    canvas.overlay{ position:absolute; inset:0; pointer-events:none; }
+    canvas.record{ display:none; }
+
+    .grid-cams{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap:12px;
+    }
+    @media (max-width:1100px){
+      .grid-cams{ grid-template-columns:1fr; }
+    }
+
+    .row{ display:flex; gap:10px; flex-wrap:wrap; }
+    .row > *{ flex:1; min-width:160px; }
+
+    label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+    input[type="number"], input[type="file"], select, input[type="color"], input[type="password"]{
+      width:100%;
+      background: rgba(2,6,23,0.6);
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:10px 10px;
+      color:var(--text);
+      outline:none;
+    }
+    input[type="checkbox"]{ transform: translateY(1px); }
+
+    table{ width:100%; border-collapse:collapse; font-size:12px; }
+    th, td{
+      text-align:left;
+      padding:10px 8px;
+      border-bottom:1px solid rgba(148,163,184,0.14);
+      vertical-align:top;
+    }
+    th{ color:var(--muted); font-weight:750; letter-spacing:.2px; }
+
+    .page{ display:none; }
+    .page.active{ display:block; }
+
+    .hint{ font-size:12px; color:var(--muted); line-height:1.35; }
+    .divider{ height:12px; }
+
+    /* Modal */
+    .backdrop{
+      position:fixed; inset:0;
+      background: rgba(0,0,0,0.55);
+      display:none;
+      align-items:center; justify-content:center;
+      z-index:200;
+      padding:16px;
+    }
+    .backdrop.show{ display:flex; }
+    .modal{
+      width:min(860px, 100%);
+      background: linear-gradient(180deg, rgba(17,24,39,0.97), rgba(15,23,42,0.97));
+      border:1px solid rgba(148,163,184,0.22);
+      border-radius:18px;
+      box-shadow:0 20px 60px rgba(0,0,0,0.45);
+      overflow:hidden;
+    }
+    .modal-h{
+      padding:12px 14px;
+      border-bottom:1px solid rgba(148,163,184,0.16);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    .modal-b{ padding:14px; }
+    .modal-h b{ font-size:13px; letter-spacing:.2px; }
+
+    /* Toast alert */
+    .toast-wrap{
+      position:fixed;
+      right:16px; bottom:16px;
+      display:flex; flex-direction:column;
+      gap:10px;
+      z-index:300;
+      pointer-events:none;
+    }
+    .toast{
+      pointer-events:none;
+      min-width: 260px;
+      max-width: 420px;
+      padding: 12px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(245,158,11,0.35);
+      background: rgba(2,6,23,0.88);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      display:flex; align-items:flex-start; gap:10px;
+      animation: pop .18s ease-out;
+    }
+    .toast .badge{
+      width:10px; height:10px; border-radius:99px;
+      background: var(--warn);
+      box-shadow: 0 0 0 6px rgba(245,158,11,0.15);
+      margin-top:4px;
+    }
+    .toast .t-title{ font-weight:800; font-size:12px; letter-spacing:.2px; }
+    .toast .t-body{ font-size:12px; color: var(--muted); margin-top:2px; line-height:1.35; }
+    @keyframes pop{ from{ transform: translateY(8px); opacity:.0; } to{ transform: translateY(0); opacity:1; } }
+
+    /* Simple admin tag */
+    .admin-pill{
+      border:1px solid rgba(59,130,246,0.35);
+      background: rgba(59,130,246,0.12);
+      color: rgba(191,219,254,0.95);
+    }
+
+    .linkbtn{
+      display:inline-flex; align-items:center; gap:8px;
+      border:1px solid rgba(148,163,184,0.22);
+      padding:8px 10px;
+      border-radius:10px;
+      background: rgba(2,6,23,0.35);
+      color: var(--text);
+      text-decoration:none;
+      font-weight:700;
+    }
+    .linkbtn:hover{ border-color: rgba(148,163,184,0.35); }
+
+  </style>
+</head>
+
+<body>
+  <div id="appHeader" style="display:flex; align-items:center; justify-content:space-between; padding:12px 18px; background:#0b5cff; color:#fff;">
+  <div style="font-weight:700;">Drone Detector</div>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span id="headerUser" style="font-weight:600;"></span>
+    <button id="headerLogoutBtn" style="display:none; padding:6px 10px; border-radius:6px; border:0; background:#fff; color:#0b5cff; cursor:pointer;">Logout</button>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // choose check function (prefer authApi.refreshCurrentUser)
+    const checkUserFn = (window.authApi && window.authApi.refreshCurrentUser) || window.refreshCurrentUser || (async () => {
+      if (window.authMe) {
+        const r = await window.authMe();
+        return r.user || null;
+      }
+      return null;
+    });
+
+    // single redirect guard
+    window.__auth_redirecting = window.__auth_redirecting || false;
+    function safeReplace(url) {
+      if (window.__auth_redirecting) return;
+      window.__auth_redirecting = true;
+      setTimeout(() => {
+        try { window.location.replace(url); } catch (e) { console.warn('safeReplace error', e); }
+      }, 120);
+    }
+
+    // main init: check auth and update header UI
+    (async function initAuthCheck() {
+      try {
+        // slight delay to allow cookie/session stabilization
+        await new Promise(r => setTimeout(r, 120));
+
+        const user = await checkUserFn();
+        if (!user) {
+          // not logged in -> allow brief time for user interaction, then redirect
+          setTimeout(() => {
+            if (!window.__auth_redirecting) safeReplace('/login.html');
+          }, 800);
+        } else {
+          // logged in -> update header UI
+          const headerUser = document.getElementById('headerUser');
+          if (headerUser) headerUser.textContent = user.username || ('id:' + (user.id || '?'));
+
+          const logoutBtn = document.getElementById('headerLogoutBtn');
+          if (logoutBtn) logoutBtn.style.display = 'inline-block';
+
+          // === admin-only UI ===
+          if (user.role === 'admin') {
+            // show the User Management button
+            const mgBtn = document.getElementById('btnUserMgmt');
+            if (mgBtn) {
+              mgBtn.style.display = 'inline-block';
+              mgBtn.addEventListener('click', () => { window.location.href = '/users.html'; });
+            }
+            // show admin pill indicator
+            const adminStatePill = document.getElementById('adminStatePill');
+            if (adminStatePill) adminStatePill.style.display = 'inline-flex';
+          } else {
+            // non-admin: ensure admin UI hidden
+            const mgBtn = document.getElementById('btnUserMgmt');
+            if (mgBtn) mgBtn.style.display = 'none';
+            const adminStatePill = document.getElementById('adminStatePill');
+            if (adminStatePill) adminStatePill.style.display = 'none';
+          }
+        }
+      } catch (err) {
+        console.warn('auth check failed', err);
+        // on error, fallback: redirect after short delay
+        setTimeout(() => {
+          if (!window.__auth_redirecting) safeReplace('/login.html');
+        }, 800);
+      }
+    })();
+
+    // bind logout button (works regardless of admin)
+    const logoutBtnEl = document.getElementById('headerLogoutBtn');
+    if (logoutBtnEl) {
+      logoutBtnEl.addEventListener('click', async () => {
+        try {
+          if (window.authApi && window.authApi.apiFetch) {
+            await window.authApi.apiFetch('/api/auth/logout', { method: 'POST' });
+          } else {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+          }
+        } catch (e) {
+          console.warn('logout error', e);
+        } finally {
+          safeReplace('/login.html');
+        }
+      });
+    }
+  })();
+</script>
+<header>
+  <div class="wrap top">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <h1 id="appTitle">SkyGuard</h1>
+        <div class="sub" id="appSub">A Vision-Based Drone Detection System</div>
+      </div>
+    </div>
+    
+
+    <div class="btns">
+      <div class="pill">
+        <span data-i18n="status">Status</span>:
+        <span class="muted" id="statusText">idle</span>
+      </div>
+      <button class="ghost" id="btnUserMgmt" style="display:none;">User Management</button>
+      <button class="ghost" id="btnDashboard" data-i18n="dashboard">Dashboard</button>
+      <button class="ghost" id="btnLive" data-i18n="live">Live</button>
+      <button class="ghost" id="btnFile" data-i18n="videoFile">Video</button>
+      <button class="ghost" id="btnLogs" data-i18n="logs">Logs</button>
+      <button class="ghost" id="btnSettings" data-i18n="settings">Settings</button>
+
+      <div class="pill admin-pill" id="adminStatePill" style="display:none;">
+        <span data-i18n="admin">Admin</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Toast Alerts -->
+<div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
+<!-- DASHBOARD (Main Menu with previews + camera control + logs) -->
+<div id="pageDashboard" class="page active">
+  <div class="container">
+
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="mainMenu">Main Menu</b>
+        <div class="btns">
+          <button class="primary" id="dashAddCam" data-i18n="addCamera">Add Camera</button>
+          <button class="ghost" id="dashRefreshDevices" data-i18n="refreshDevices">Refresh Devices</button>
+
+          <button class="primary" id="dashStartAll" data-i18n="startAll">Start All</button>
+          <button class="danger" id="dashStopAll" data-i18n="stopAll">Stop All</button>
+
+          <button class="primary" id="dashDetectAll" data-i18n="detectOnAll">Detect On (All)</button>
+          <button class="danger" id="dashDetectOffAll" data-i18n="detectOffAll">Detect Off (All)</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="hint" data-i18n="dashHint">
+          Live previews of attached cameras are shown below. Start cameras first, then enable detection.
+        </div>
+        <div class="divider"></div>
+        <div id="dashCamGrid" class="grid-cams"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="recentLogs">Recent Logs</b>
+        <div class="btns" style="justify-content:flex-end;">
+          <div class="pill">
+            <span data-i18n="lastDetect">Last detect</span>:
+            <span id="lastMs" class="muted">-</span> ms
+          </div>
+          <button id="btnClearLogs" data-i18n="clearLogs">Clear</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div style="max-height: 420px; overflow:auto; border:1px solid rgba(148,163,184,0.14); border-radius: 12px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:190px;" data-i18n="time">Time</th>
+                <th data-i18n="event">Event</th>
+                <th style="width:90px;" data-i18n="source">Source</th>
+                <th style="width:280px;" data-i18n="clipSaved">Clip Saved</th>
+              </tr>
+            </thead>
+            <tbody id="logBody"></tbody>
+          </table>
+        </div>
+        <div class="divider"></div>
+        <div class="hint">
+          <span data-i18n="logsPageHint">Open the Logs page to manage stored logs and download specific footage.</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LIVE PAGE (optional dedicated view) -->
+<div id="pageLive" class="page">
+  <div class="container">
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="liveMonitor">Live Monitor</b>
+        <div class="btns">
+          <button class="primary" id="liveAddCam" data-i18n="addCamera">Add Camera</button>
+          <button class="ghost" id="liveRefreshDevices" data-i18n="refreshDevices">Refresh Devices</button>
+
+          <button class="primary" id="liveStartAll" data-i18n="startAll">Start All</button>
+          <button class="danger" id="liveStopAll" data-i18n="stopAll">Stop All</button>
+
+          <button class="primary" id="liveDetectAll" data-i18n="detectOnAll">Detect On (All)</button>
+          <button class="danger" id="liveDetectOffAll" data-i18n="detectOffAll">Detect Off (All)</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="hint" data-i18n="liveHint">
+          Same camera tiles as Dashboard. If you prefer, just use Dashboard.
+        </div>
+        <div class="divider"></div>
+        <div id="liveCamGrid" class="grid-cams"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FILE PAGE -->
+<div id="pageFile" class="page">
+  <div class="container">
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="videoFileDetection">Video File Detection</b>
+        <div class="btns">
+          <button class="danger" id="btnStopFileDetect" data-i18n="stopDetect">Stop Detect</button>
+          <button class="primary" id="btnStartFileDetect" data-i18n="startDetect">Start Detect</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="row">
+          <div>
+            <label data-i18n="loadVideo">Load Video File</label>
+            <input id="fileInput" type="file" accept="video/*" />
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="viewer">
+          <video id="fileVideo" playsinline muted controls></video>
+          <canvas class="overlay" id="fileOverlay"></canvas>
+          <canvas class="record" id="fileRecord"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LOGS PAGE (Stored logs + admin edit/delete + download clip per log) -->
+<div id="pageLogs" class="page">
+  <div class="container">
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="storedLogs">Stored Logs</b>
+        <div class="btns">
+          <button class="ghost" id="btnReloadStoredLogs" data-i18n="reload">Reload</button>
+          <button class="ghost" id="btnAdminLogin" data-i18n="adminLogin">Admin Login</button>
+          <button class="danger" id="btnAdminLogout" style="display:none;" data-i18n="adminLogout">Admin Logout</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="hint" data-i18n="storedLogsHint">
+          This page loads logs saved on the server. Admin can edit or delete logs.
+        </div>
+        <div class="divider"></div>
+        <div style="overflow:auto; border:1px solid rgba(148,163,184,0.14); border-radius: 12px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:120px;">ID</th>
+                <th style="width:190px;" data-i18n="time">Time</th>
+                <th data-i18n="event">Event</th>
+                <th style="width:110px;" data-i18n="source">Source</th>
+                <th style="width:280px;" data-i18n="clip">Clip</th>
+                <th style="width:220px;" data-i18n="actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="storedLogBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="backdrop" id="settingsBackdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="modal-h">
+      <b data-i18n="settings">Settings</b>
+      <div class="btns">
+        <button class="ghost" id="btnCloseSettings" data-i18n="close">Close</button>
+      </div>
+    </div>
+    <div class="modal-b">
+      <div class="row">
+        <div>
+          <label data-i18n="detectionFps">Detection FPS</label>
+          <input id="fpsInput" type="number" min="1" max="15" value="6" />
+        </div>
+        <div>
+          <label data-i18n="confidence">Confidence</label>
+          <input id="confInput" type="number" min="0.05" max="0.95" step="0.05" value="0.40" />
+        </div>
+        <div>
+          <label data-i18n="maxDim">Max Dim (backend)</label>
+          <input id="maxDimInput" type="number" min="320" max="1280" step="64" value="640" />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label>
+            <input id="autoClip" type="checkbox" checked />
+            <span data-i18n="autoSaveClip">Auto-save clip when drone detected</span>
+          </label>
+        </div>
+        <div>
+          <label data-i18n="clipSaveMode">Clip Save Mode</label>
+          <select id="clipMode">
+            <option value="event" data-i18n="clipModeEvent">Save while drone appears (until it disappears)</option>
+            <option value="fixed" data-i18n="clipModeFixed">Save fixed length (Clip sec)</option>
+          </select>
+        </div>
+        <div>
+          <label data-i18n="clipSec">Clip sec (fixed mode)</label>
+          <input id="clipSec" type="number" min="3" max="60" value="8" />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label data-i18n="bgColor">Background color</label>
+          <input id="bgColor" type="color" value="#0b0f17" />
+        </div>
+        <div>
+          <label data-i18n="language">Language</label>
+          <select id="langSelect">
+            <option value="en">English</option>
+            <option value="zh-Hant">繁體中文</option>
+            <option value="zh-Hans">简体中文</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="hint">
+        <span data-i18n="clipBurnInHint">
+          Clips are recorded from the annotated canvas stream, so saved footage includes box + trail + curved prediction + timestamp.
+        </span>
+        <br/>
+        <span data-i18n="eventModeCap">
+          “Save while drone appears” ends after the drone is gone (short delay). Safety cap: 2 minutes.
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADMIN LOGIN MODAL -->
+<div class="backdrop" id="adminBackdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Admin Login">
+    <div class="modal-h">
+      <b data-i18n="adminLogin">Admin Login</b>
+      <div class="btns">
+        <button class="ghost" id="btnCloseAdmin" data-i18n="close">Close</button>
+      </div>
+    </div>
+    <div class="modal-b">
+      <div class="row">
+        <div>
+          <label data-i18n="adminPassword">Admin password</label>
+          <input id="adminPass" type="password" placeholder="••••••••" />
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="btns">
+        <button class="primary" id="btnDoAdminLogin" data-i18n="login">Login</button>
+      </div>
+      <div class="divider"></div>
+      <div class="hint" data-i18n="adminHint">
+        This is frontend-only gating. You should still enforce admin permission on the server.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT LOG MODAL -->
+<div class="backdrop" id="editBackdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Edit Log">
+    <div class="modal-h">
+      <b data-i18n="editLog">Edit Log</b>
+      <div class="btns">
+        <button class="ghost" id="btnCloseEdit" data-i18n="close">Close</button>
+      </div>
+    </div>
+    <div class="modal-b">
+      <div class="row">
+        <div>
+          <label data-i18n="event">Event</label>
+          <input id="editEvent" type="text" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label data-i18n="time">Time</label>
+          <input id="editTime" type="text" />
+        </div>
+        <div>
+          <label data-i18n="source">Source</label>
+          <input id="editSource" type="text" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label data-i18n="clip">Clip</label>
+          <input id="editClip" type="text" />
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="btns">
+        <button class="primary" id="btnSaveEdit" data-i18n="save">Save</button>
+        <button class="danger" id="btnDeleteLog" data-i18n="delete">Delete</button>
+      </div>
+      <div class="divider"></div>
+      <div class="hint" id="editHint"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // =======================
+  // Backend endpoints (you must implement these on server for 4.1/4.2)
+  // =======================
+  const DETECT_ENDPOINT = '/api/drone/detect';
+  const CLIP_SAVE_ENDPOINT = '/api/clip/save';
+
+  // Stored logs APIs:
+  const LOGS_LIST_ENDPOINT   = '/api/logs';           // GET -> [{id,time,event,source,clip}]
+  const LOGS_CREATE_ENDPOINT = '/api/logs/create';    // POST -> {ok:true,id}
+  const LOGS_UPDATE_ENDPOINT = '/api/logs/update';    // POST -> {ok:true}
+  const LOGS_DELETE_ENDPOINT = '/api/logs/delete';    // POST -> {ok:true}
+  const CLIP_DOWNLOAD_PREFIX = '/api/clip/download?file='; // GET download by filename
+
+  // =======================
+  // i18n
+  // =======================
+  const I18N = {
+    en: {
+      status: "Status",
+      dashboard: "Dashboard",
+      live: "Live",
+      videoFile: "Video",
+      logs: "Logs",
+      settings: "Settings",
+      admin: "Admin",
+
+      mainMenu: "Main Menu",
+      addCamera: "Add Camera",
+      refreshDevices: "Refresh Devices",
+      startAll: "Start All",
+      stopAll: "Stop All",
+      detectOnAll: "Detect On (All)",
+      detectOffAll: "Detect Off (All)",
+      dashHint: "Live previews of attached cameras are shown below. Start cameras first, then enable detection.",
+
+      recentLogs: "Recent Logs",
+      lastDetect: "Last detect",
+      clearLogs: "Clear",
+      logsPageHint: "Open the Logs page to manage stored logs and download specific footage.",
+      time: "Time",
+      event: "Event",
+      source: "Source",
+      clipSaved: "Clip Saved",
+
+      liveMonitor: "Live Monitor",
+      liveHint: "Same camera tiles as Dashboard. If you prefer, just use Dashboard.",
+
+      videoFileDetection: "Video File Detection",
+      startDetect: "Start Detect",
+      stopDetect: "Stop Detect",
+      loadVideo: "Load Video File",
+
+      storedLogs: "Stored Logs",
+      storedLogsHint: "This page loads logs saved on the server. Admin can edit or delete logs.",
+      reload: "Reload",
+      adminLogin: "Admin Login",
+      adminLogout: "Admin Logout",
+      clip: "Clip",
+      actions: "Actions",
+      download: "Download",
+      edit: "Edit",
+
+      detectionFps: "Detection FPS",
+      confidence: "Confidence",
+      maxDim: "Max Dim (backend)",
+      autoSaveClip: "Auto-save clip when drone detected",
+      clipSaveMode: "Clip Save Mode",
+      clipModeEvent: "Save while drone appears (until it disappears)",
+      clipModeFixed: "Save fixed length (Clip sec)",
+      clipSec: "Clip sec (fixed mode)",
+      bgColor: "Background color",
+      language: "Language",
+      clipBurnInHint: "Clips are recorded from the annotated canvas stream, so saved footage includes box + trail + curved prediction + timestamp.",
+      eventModeCap: "“Save while drone appears” ends after the drone is gone (short delay). Safety cap: 2 minutes.",
+      close: "Close",
+
+      adminPassword: "Admin password",
+      login: "Login",
+      adminHint: "This is frontend-only gating. You should still enforce admin permission on the server.",
+
+      editLog: "Edit Log",
+      save: "Save",
+      delete: "Delete",
+
+      alertTitle: "Drone Detected",
+      alertBody: "Detection triggered on"
+    },
+
+    "zh-Hant": {
+      status: "狀態",
+      dashboard: "主頁",
+      live: "即時",
+      videoFile: "影片",
+      logs: "紀錄",
+      settings: "設定",
+      admin: "管理員",
+
+      mainMenu: "主選單",
+      addCamera: "新增鏡頭",
+      refreshDevices: "重新掃描鏡頭",
+      startAll: "全部啟動",
+      stopAll: "全部停止",
+      detectOnAll: "全部偵測開啟",
+      detectOffAll: "全部偵測關閉",
+      dashHint: "下方會顯示已連接鏡頭的即時預覽。先啟動鏡頭，再開啟偵測。",
+
+      recentLogs: "近期紀錄",
+      lastDetect: "偵測耗時",
+      clearLogs: "清除",
+      logsPageHint: "到「紀錄」頁面可管理已存紀錄並下載對應影片。",
+      time: "時間",
+      event: "事件",
+      source: "來源",
+      clipSaved: "已存影片",
+
+      liveMonitor: "即時監控",
+      liveHint: "與主頁相同的鏡頭方塊。你也可以只用主頁。",
+
+      videoFileDetection: "影片檔偵測",
+      startDetect: "開始偵測",
+      stopDetect: "停止偵測",
+      loadVideo: "載入影片檔",
+
+      storedLogs: "已存紀錄",
+      storedLogsHint: "此頁會從伺服器載入紀錄。管理員可編輯或刪除。",
+      reload: "重新載入",
+      adminLogin: "管理員登入",
+      adminLogout: "管理員登出",
+      clip: "影片",
+      actions: "操作",
+      download: "下載",
+      edit: "編輯",
+
+      detectionFps: "偵測 FPS",
+      confidence: "信心值",
+      maxDim: "最大尺寸(後端)",
+      autoSaveClip: "偵測到無人機自動存檔",
+      clipSaveMode: "存檔模式",
+      clipModeEvent: "無人機出現期間存檔(直到消失)",
+      clipModeFixed: "固定秒數存檔(依 Clip sec)",
+      clipSec: "Clip sec(固定模式)",
+      bgColor: "背景顏色",
+      language: "語言",
+      clipBurnInHint: "影片由標註後畫面錄製，因此包含框、尾跡、曲線預測與時間戳。",
+      eventModeCap: "「出現期間存檔」會在目標消失(短延遲)後結束。安全上限：2 分鐘。",
+      close: "關閉",
+
+      adminPassword: "管理員密碼",
+      login: "登入",
+      adminHint: "此為前端門檻，後端仍需做管理權限驗證。",
+
+      editLog: "編輯紀錄",
+      save: "儲存",
+      delete: "刪除",
+
+      alertTitle: "偵測到無人機",
+      alertBody: "偵測來源："
+    },
+
+    "zh-Hans": {
+      status: "状态",
+      dashboard: "主页",
+      live: "实时",
+      videoFile: "视频",
+      logs: "记录",
+      settings: "设置",
+      admin: "管理员",
+
+      mainMenu: "主菜单",
+      addCamera: "添加摄像头",
+      refreshDevices: "刷新设备",
+      startAll: "全部启动",
+      stopAll: "全部停止",
+      detectOnAll: "全部开启检测",
+      detectOffAll: "全部关闭检测",
+      dashHint: "下方显示已连接摄像头的实时预览。先启动摄像头，再开启检测。",
+
+      recentLogs: "近期记录",
+      lastDetect: "检测耗时",
+      clearLogs: "清除",
+      logsPageHint: "到「记录」页面可管理已存记录并下载对应视频。",
+      time: "时间",
+      event: "事件",
+      source: "来源",
+      clipSaved: "已存视频",
+
+      liveMonitor: "实时监控",
+      liveHint: "与主页相同的摄像头卡片。你也可以只用主页。",
+
+      videoFileDetection: "视频文件检测",
+      startDetect: "开始检测",
+      stopDetect: "停止检测",
+      loadVideo: "加载视频文件",
+
+      storedLogs: "已存记录",
+      storedLogsHint: "此页从服务器加载记录。管理员可编辑或删除。",
+      reload: "重新加载",
+      adminLogin: "管理员登录",
+      adminLogout: "管理员登出",
+      clip: "视频",
+      actions: "操作",
+      download: "下载",
+      edit: "编辑",
+
+      detectionFps: "检测 FPS",
+      confidence: "置信度",
+      maxDim: "最大尺寸(后端)",
+      autoSaveClip: "检测到无人机自动保存",
+      clipSaveMode: "保存模式",
+      clipModeEvent: "无人机出现期间保存(直到消失)",
+      clipModeFixed: "固定秒数保存(按 Clip sec)",
+      clipSec: "Clip sec(固定模式)",
+      bgColor: "背景颜色",
+      language: "语言",
+      clipBurnInHint: "视频从标注画面录制，因此包含框、尾迹、曲线预测与时间戳。",
+      eventModeCap: "「出现期间保存」会在目标消失(短延迟)后结束。安全上限：2 分钟。",
+      close: "关闭",
+
+      adminPassword: "管理员密码",
+      login: "登录",
+      adminHint: "这是前端门槛，后端仍需做管理员权限校验。",
+
+      editLog: "编辑记录",
+      save: "保存",
+      delete: "删除",
+
+      alertTitle: "检测到无人机",
+      alertBody: "检测来源："
+    }
+  };
+
+  function getLang() {
+    return localStorage.getItem('lang') || 'en';
+  }
+  function setLang(lang) {
+    localStorage.setItem('lang', lang);
+    applyI18n();
+  }
+  function t(key) {
+    const lang = getLang();
+    return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
+  }
+  function applyI18n() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (!key) return;
+      el.textContent = t(key);
+    });
+  }
+
+  // =======================
+  // UI Refs + navigation
+  // =======================
+  const statusText = document.getElementById('statusText');
+  const lastMs = document.getElementById('lastMs');
+  const logBody = document.getElementById('logBody');
+
+  const pageDashboard = document.getElementById('pageDashboard');
+  const pageLive = document.getElementById('pageLive');
+  const pageFile = document.getElementById('pageFile');
+  const pageLogs = document.getElementById('pageLogs');
+
+  function setStatus(text, ok=true) {
+    statusText.textContent = text;
+    statusText.style.color = ok ? 'var(--accent)' : 'var(--danger)';
+  }
+
+  function showPage(which) {
+    pageDashboard.classList.remove('active');
+    pageLive.classList.remove('active');
+    pageFile.classList.remove('active');
+    pageLogs.classList.remove('active');
+    if (which === 'dashboard') pageDashboard.classList.add('active');
+    if (which === 'live') pageLive.classList.add('active');
+    if (which === 'file') pageFile.classList.add('active');
+    if (which === 'logs') pageLogs.classList.add('active');
+  }
+
+  document.getElementById('btnDashboard').addEventListener('click', () => showPage('dashboard'));
+  document.getElementById('btnLive').addEventListener('click', () => showPage('live'));
+  document.getElementById('btnFile').addEventListener('click', () => showPage('file'));
+  document.getElementById('btnLogs').addEventListener('click', async () => { showPage('logs'); await loadStoredLogs(); });
+
+  // =======================
+  // Settings modal + theme
+  // =======================
+  const settingsBackdrop = document.getElementById('settingsBackdrop');
+  const btnSettings = document.getElementById('btnSettings');
+  const btnCloseSettings = document.getElementById('btnCloseSettings');
+
+  const fpsInput = document.getElementById('fpsInput');
+  const confInput = document.getElementById('confInput');
+  const maxDimInput = document.getElementById('maxDimInput');
+  const autoClip = document.getElementById('autoClip');
+  const clipMode = document.getElementById('clipMode');
+  const clipSec = document.getElementById('clipSec');
+  const bgColor = document.getElementById('bgColor');
+  const langSelect = document.getElementById('langSelect');
+
+  function openSettings() {
+    settingsBackdrop.classList.add('show');
+    settingsBackdrop.setAttribute('aria-hidden', 'false');
+  }
+  function closeSettings() {
+    settingsBackdrop.classList.remove('show');
+    settingsBackdrop.setAttribute('aria-hidden', 'true');
+  }
+  btnSettings.addEventListener('click', openSettings);
+  btnCloseSettings.addEventListener('click', closeSettings);
+  settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
+
+  // Theme + language persistence
+  function applyBgColor(hex) {
+    document.documentElement.style.setProperty('--bg', hex);
+  }
+  function initThemeLang() {
+    const savedBg = localStorage.getItem('bg') || '#0b0f17';
+    bgColor.value = savedBg;
+    applyBgColor(savedBg);
+
+    const savedLang = getLang();
+    langSelect.value = savedLang;
+    applyI18n();
+  }
+  bgColor.addEventListener('input', () => {
+    localStorage.setItem('bg', bgColor.value);
+    applyBgColor(bgColor.value);
+  });
+  langSelect.addEventListener('change', () => setLang(langSelect.value));
+
+  // =======================
+  // Toast Alerts
+  // =======================
+  const toastWrap = document.getElementById('toastWrap');
+  function toast(title, body) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = `
+      <div class="badge"></div>
+      <div>
+        <div class="t-title">${title}</div>
+        <div class="t-body">${body}</div>
+      </div>
+    `;
+    toastWrap.appendChild(el);
+    setTimeout(() => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(8px)';
+      el.style.transition = 'all .25s ease';
+      setTimeout(() => el.remove(), 260);
+    }, 2800);
+  }
+
+  // =======================
+  // Logs (dashboard recent)
+  // =======================
+  document.getElementById('btnClearLogs').addEventListener('click', () => logBody.innerHTML = '');
+
+  function fmtHHMMSS(ts) {
+    const d = new Date(ts);
+    const hh = String(d.getHours()).padStart(2,'0');
+    const mm = String(d.getMinutes()).padStart(2,'0');
+    const ss = String(d.getSeconds()).padStart(2,'0');
+    return `${hh}:${mm}:${ss}`;
+  }
+
+  function addRecentLogRow({ timeText, event, source='-', clipText='-', pendingId=null }) {
+    const tr = document.createElement('tr');
+
+    const tdT = document.createElement('td'); tdT.textContent = timeText || '-';
+    const tdE = document.createElement('td'); tdE.textContent = event || '-';
+    const tdS = document.createElement('td'); tdS.textContent = source || '-';
+    const tdL = document.createElement('td'); tdL.textContent = clipText || '-';
+    if (clipText === '-' || clipText === 'saving...' || clipText === 'off') tdL.style.color = 'var(--muted)';
+
+    tr.appendChild(tdT); tr.appendChild(tdE); tr.appendChild(tdS); tr.appendChild(tdL);
+    logBody.prepend(tr);
+
+    return { tr, tdT, tdE, tdS, tdL, pendingId };
+  }
+
+  // =======================
+  // Stored Logs Page (admin edit/delete + download)
+  // =======================
+  const storedLogBody = document.getElementById('storedLogBody');
+  const btnReloadStoredLogs = document.getElementById('btnReloadStoredLogs');
+  btnReloadStoredLogs.addEventListener('click', loadStoredLogs);
+
+
+  // Edit modal
+  const editBackdrop = document.getElementById('editBackdrop');
+  const btnCloseEdit = document.getElementById('btnCloseEdit');
+  const btnSaveEdit = document.getElementById('btnSaveEdit');
+  const btnDeleteLog = document.getElementById('btnDeleteLog');
+  const editEvent = document.getElementById('editEvent');
+  const editTime = document.getElementById('editTime');
+  const editSource = document.getElementById('editSource');
+  const editClip = document.getElementById('editClip');
+  const editHint = document.getElementById('editHint');
+
+  let editingLog = null;
+
+  function openEdit(log) {
+    editingLog = log;
+    editEvent.value = log.event || '';
+    editTime.value = log.time || '';
+    editSource.value = log.source || '';
+    editClip.value = log.clip || '';
+    editHint.textContent = `ID: ${log.id}`;
+    editBackdrop.classList.add('show');
+    editBackdrop.setAttribute('aria-hidden','false');
+  }
+  function closeEdit() {
+    editBackdrop.classList.remove('show');
+    editBackdrop.setAttribute('aria-hidden','true');
+    editingLog = null;
+  }
+  btnCloseEdit.addEventListener('click', closeEdit);
+  editBackdrop.addEventListener('click', (e) => { if (e.target === editBackdrop) closeEdit(); });
+
+  btnSaveEdit.addEventListener('click', async () => {
+    if (!isAdmin || !editingLog) return;
+    const payload = {
+      id: editingLog.id,
+      event: editEvent.value.trim(),
+      time: editTime.value.trim(),
+      source: editSource.value.trim(),
+      clip: editClip.value.trim()
+    };
+    try {
+      const r = await fetch(LOGS_UPDATE_ENDPOINT, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if (!r.ok) throw new Error('bad');
+      toast(t('edit'), 'Saved');
+      closeEdit();
+      await loadStoredLogs();
+    } catch (e) {
+      toast('Error', 'Update failed (backend missing?)');
+    }
+  });
+
+  btnDeleteLog.addEventListener('click', async () => {
+    if (!isAdmin || !editingLog) return;
+    try {
+      const r = await fetch(LOGS_DELETE_ENDPOINT, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ id: editingLog.id })
+      });
+      if (!r.ok) throw new Error('bad');
+      toast(t('delete'), 'Deleted');
+      closeEdit();
+      await loadStoredLogs();
+    } catch (e) {
+      toast('Error', 'Delete failed (backend missing?)');
+    }
+  });
+
+  async function loadStoredLogs() {
+    storedLogBody.innerHTML = '';
+    try {
+      const r = await fetch(LOGS_LIST_ENDPOINT, { method:'GET' });
+      if (!r.ok) throw new Error('bad');
+      const data = await r.json(); // expected array
+      for (const log of (data || [])) {
+        const tr = document.createElement('tr');
+
+        const tdId = document.createElement('td'); tdId.textContent = log.id ?? '-';
+        const tdTime = document.createElement('td'); tdTime.textContent = log.time ?? '-';
+        const tdEvent = document.createElement('td'); tdEvent.textContent = log.event ?? '-';
+        const tdSource = document.createElement('td'); tdSource.textContent = log.source ?? '-';
+
+        const tdClip = document.createElement('td');
+        tdClip.textContent = log.clip ?? '-';
+        tdClip.style.color = (log.clip && String(log.clip).startsWith('Saved:')) ? 'var(--text)' : 'var(--muted)';
+
+        const tdAct = document.createElement('td');
+
+        // Download button (per log)
+        const clipFile = extractFilename(log.clip);
+        if (clipFile) {
+          const a = document.createElement('a');
+          a.className = 'linkbtn';
+          a.setAttribute('download', '');
+          a.href = CLIP_DOWNLOAD_PREFIX + encodeURIComponent(clipFile);
+          a.textContent = t('download');
+          tdAct.appendChild(a);
+        } else {
+          const span = document.createElement('span');
+          span.style.color = 'var(--muted)';
+          span.textContent = '-';
+          tdAct.appendChild(span);
+        }
+
+        // Edit button (admin only)
+        if (isAdmin) {
+          const b = document.createElement('button');
+          b.className = 'ghost';
+          b.style.marginLeft = '8px';
+          b.textContent = t('edit');
+          b.addEventListener('click', () => openEdit(log));
+          tdAct.appendChild(b);
+        }
+
+        tr.appendChild(tdId);
+        tr.appendChild(tdTime);
+        tr.appendChild(tdEvent);
+        tr.appendChild(tdSource);
+        tr.appendChild(tdClip);
+        tr.appendChild(tdAct);
+        storedLogBody.appendChild(tr);
+      }
+      setStatus(`logs: ${(data||[]).length}`, true);
+    } catch (e) {
+      setStatus('logs load failed', false);
+      // Show hint row
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 6;
+      td.style.color = 'var(--muted)';
+      td.textContent = 'Backend /api/logs not available (implement LOGS_LIST_ENDPOINT).';
+      tr.appendChild(td);
+      storedLogBody.appendChild(tr);
+    }
+  }
+
+  function extractFilename(clipText) {
+    // Expected format: "Saved: filename.webm" (from this UI)
+    if (!clipText) return null;
+    const s = String(clipText);
+    const idx = s.indexOf('Saved:');
+    if (idx === -1) return null;
+    return s.slice(idx + 6).trim();
+  }
+
+  // =======================
+  // Video overlay + annotation recording
+  // =======================
+  function fitOverlayToVideo(videoEl, overlayEl) {
+    const rect = videoEl.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    overlayEl.width = Math.max(1, Math.floor(rect.width * dpr));
+    overlayEl.height = Math.max(1, Math.floor(rect.height * dpr));
+    overlayEl.style.width = rect.width + 'px';
+    overlayEl.style.height = rect.height + 'px';
+    return { rect, dpr };
+  }
+
+  function pickMimeType() {
+    if (typeof MediaRecorder === 'undefined') return '';
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm'
+    ];
+    for (const c of candidates) if (MediaRecorder.isTypeSupported(c)) return c;
+    return '';
+  }
+
+  async function uploadClipToServer(blob, source, eventId) {
+    const fd = new FormData();
+    fd.append('file', blob, `clip_${Date.now()}.webm`);
+    fd.append('source', source);
+    fd.append('event_id', String(eventId || ''));
+    const resp = await fetch(CLIP_SAVE_ENDPOINT, { method: 'POST', body: fd });
+    if (!resp.ok) throw new Error('upload failed');
+    return await resp.json(); // {ok:true, filename:"..."}
+  }
+
+  async function frameToDataUrl(videoEl, quality=0.6) {
+    const vw = videoEl.videoWidth || 0;
+    const vh = videoEl.videoHeight || 0;
+    if (!vw || !vh) return null;
+    const c = document.createElement('canvas');
+    c.width = vw; c.height = vh;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(videoEl, 0, 0, vw, vh);
+    return c.toDataURL('image/jpeg', quality);
+  }
+
+  function drawOverlay(videoEl, overlayEl, recordEl, detections, extras) {
+    const octx = overlayEl.getContext('2d');
+    const { rect, dpr } = fitOverlayToVideo(videoEl, overlayEl);
+
+    octx.setTransform(1,0,0,1,0,0);
+    octx.clearRect(0, 0, overlayEl.width, overlayEl.height);
+
+    const vw = videoEl.videoWidth || 0;
+    const vh = videoEl.videoHeight || 0;
+    if (!vw || !vh) return;
+
+    const scale = Math.min(rect.width / vw, rect.height / vh);
+    const dispW = vw * scale;
+    const dispH = vh * scale;
+    const padX = (rect.width - dispW) / 2;
+    const padY = (rect.height - dispH) / 2;
+
+    const sx = (dispW * dpr) / vw;
+    const sy = (dispH * dpr) / vh;
+    const offX = padX * dpr;
+    const offY = padY * dpr;
+
+    const ts = new Date();
+    const stampText =
+      `${ts.getFullYear()}-${String(ts.getMonth()+1).padStart(2,'0')}-${String(ts.getDate()).padStart(2,'0')} ` +
+      `${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}:${String(ts.getSeconds()).padStart(2,'0')}`;
+
+    function drawAll(ctx, mapFn, mul, drawRaw, rawEl) {
+      if (drawRaw && rawEl) {
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.clearRect(0,0,ctx.canvas.width, ctx.canvas.height);
+        ctx.drawImage(rawEl, 0, 0, ctx.canvas.width, ctx.canvas.height);
+      }
+
+      // trail dots
+      if (extras?.trail?.length) {
+        for (let i = 0; i < extras.trail.length; i++) {
+          const p = extras.trail[i];
+          const mp = mapFn(p.x, p.y);
+          const a = (i + 1) / extras.trail.length;
+          const alpha = Math.max(0.08, 0.55 * a);
+          const r = Math.max(2, (2 + 3 * a) * mul);
+          ctx.fillStyle = `rgba(34,197,94,${alpha})`;
+          ctx.beginPath();
+          ctx.arc(mp.x, mp.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // boxes
+      ctx.lineWidth = Math.max(2, 2 * mul);
+      ctx.font = `${Math.max(12, 12 * mul)}px ui-sans-serif`;
+      ctx.textBaseline = 'top';
+
+      for (const det of (detections||[])) {
+        const p1 = mapFn(det.x1, det.y1);
+        const p2 = mapFn(det.x2, det.y2);
+        const x = p1.x, y = p1.y, w = p2.x - p1.x, h = p2.y - p1.y;
+
+        const conf = det.confidence ?? 0;
+        const label = det.label ?? 'obj';
+
+        ctx.strokeStyle = 'rgba(34,197,94,0.95)';
+        ctx.fillStyle = 'rgba(34,197,94,0.15)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+
+        const tag = `${label} ${(conf*100).toFixed(0)}%`;
+        const pad = 6 * mul;
+        const tw = ctx.measureText(tag).width;
+        const th = Math.max(16 * mul, 16);
+
+        ctx.fillStyle = 'rgba(2,6,23,0.75)';
+        ctx.fillRect(x, Math.max(0, y - th - 2*mul), tw + 2*pad, th + 2*mul);
+        ctx.fillStyle = 'rgba(229,231,235,0.95)';
+        ctx.fillText(tag, x + pad, Math.max(0, y - th));
+      }
+
+      // curved prediction
+      if (extras?.predCurve?.pts?.length) {
+        const pts = extras.predCurve.pts;
+        ctx.strokeStyle = 'rgba(34,197,94,0.95)';
+        ctx.lineWidth = Math.max(3, 3 * mul);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        ctx.beginPath();
+        const s = mapFn(extras.predCurve.start.x, extras.predCurve.start.y);
+        ctx.moveTo(s.x, s.y);
+
+        for (let i = 0; i < pts.length; i++) {
+          const p = mapFn(pts[i].x, pts[i].y);
+          const next = (i < pts.length - 1) ? mapFn(pts[i+1].x, pts[i+1].y) : p;
+          const mx = (p.x + next.x) / 2;
+          const my = (p.y + next.y) / 2;
+          ctx.quadraticCurveTo(p.x, p.y, mx, my);
+        }
+        ctx.stroke();
+
+        const end = mapFn(pts[pts.length-1].x, pts[pts.length-1].y);
+        ctx.fillStyle = 'rgba(34,197,94,1.0)';
+        ctx.beginPath();
+        ctx.arc(end.x, end.y, Math.max(4, 4 * mul), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // timestamp
+      ctx.font = `${Math.max(14, 14 * mul)}px ui-sans-serif`;
+      const w = ctx.measureText(stampText).width + 16 * mul;
+      const h = 24 * mul;
+      ctx.fillStyle = 'rgba(2,6,23,0.70)';
+      ctx.fillRect(10 * mul, 10 * mul, w, h);
+      ctx.fillStyle = 'rgba(229,231,235,0.95)';
+      ctx.fillText(stampText, 18 * mul, 12 * mul);
+    }
+
+    // visible overlay
+    drawAll(
+      octx,
+      (x,y) => ({ x: offX + x * sx, y: offY + y * sy }),
+      dpr,
+      false,
+      null
+    );
+
+    // record canvas at native video size (burn-in overlay)
+    if (recordEl) {
+      recordEl.width = vw;
+      recordEl.height = vh;
+      const rctx = recordEl.getContext('2d');
+      drawAll(
+        rctx,
+        (x,y) => ({ x, y }),
+        1,
+        true,
+        videoEl
+      );
+    }
+  }
+
+  // =======================
+  // Detector (alerts + save clips + create stored logs)
+  // =======================
+  class Detector {
+    constructor({ name, videoEl, overlayEl, recordEl, onEventFinalized }) {
+      this.name = name;
+      this.video = videoEl;
+      this.overlay = overlayEl;
+      this.recordEl = recordEl;
+      this.onEventFinalized = onEventFinalized; // callback for stored logs
+
+      this.timerId = null;
+      this.abortCtl = null;
+
+      this.isDetecting = false;
+      this.inEvent = false;
+      this.eventId = 0;
+      this.eventStartTs = null;
+      this.lastSeenTs = 0;
+      this.goneDelayMs = 1500;
+
+      this.recorder = null;
+      this.recChunks = [];
+      this.pendingClipText = null;
+
+      this.eventMaxMs = 2 * 60 * 1000;
+      this.eventCapTimer = null;
+
+      this.lastCenter = null;
+      this.lastCenterT = null;
+      this.vel = { vx: 0, vy: 0 };
+      this.acc = { ax: 0, ay: 0 };
+      this.predCurve = null;
+
+      this.trail = [];
+      this.trailMax = 10;
+      this.trailKeepMs = 1400;
+
+      this.recentRow = null; // dashboard recent row
+      this.storedLogId = null; // server log id if created
+      this.alertedThisEvent = false;
+    }
+
+    start() {
+      this.stop();
+      const fps = Math.max(1, Math.min(15, Number(fpsInput.value) || 6));
+      const interval = Math.floor(1000 / fps);
+
+      this.isDetecting = true;
+      setStatus(`${this.name}: detecting`, true);
+
+      this.timerId = setInterval(() => this.tick(), interval);
+      window.addEventListener('resize', () => fitOverlayToVideo(this.video, this.overlay), { passive: true });
+    }
+
+    stop() {
+      this.isDetecting = false;
+      if (this.timerId) { clearInterval(this.timerId); this.timerId = null; }
+      if (this.abortCtl) { this.abortCtl.abort(); this.abortCtl = null; }
+
+      this.stopRecordingIfAny();
+
+      this.inEvent = false;
+      this.eventStartTs = null;
+      this.pendingClipText = null;
+      this.recentRow = null;
+      this.storedLogId = null;
+      this.alertedThisEvent = false;
+
+      this.clearMotion();
+
+      const ctx = this.overlay.getContext('2d');
+      ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+      setStatus('idle', true);
+    }
+
+    clearMotion() {
+      this.lastCenter = null;
+      this.lastCenterT = null;
+      this.vel = { vx: 0, vy: 0 };
+      this.acc = { ax: 0, ay: 0 };
+      this.predCurve = null;
+      this.trail = [];
+    }
+
+    getRecordStream() {
+      if (!this.recordEl || !this.recordEl.captureStream) return null;
+      return this.recordEl.captureStream(30);
+    }
+
+    async createStoredLogSkeleton(timeText, eventText) {
+      // Best-effort create; backend must exist
+      try {
+        const r = await fetch(LOGS_CREATE_ENDPOINT, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            time: timeText,
+            event: eventText,
+            source: this.name,
+            clip: 'saving...'
+          })
+        });
+        if (!r.ok) throw new Error('bad');
+        const js = await r.json();
+        this.storedLogId = js.id ?? null;
+      } catch (_) {
+        this.storedLogId = null;
+      }
+    }
+
+    async updateStoredLogClip(clipFilename, timeText, eventText) {
+      if (!this.storedLogId) return;
+      try {
+        await fetch(LOGS_UPDATE_ENDPOINT, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            id: this.storedLogId,
+            time: timeText,
+            event: eventText,
+            source: this.name,
+            clip: `Saved: ${clipFilename}`
+          })
+        });
+      } catch (_) {}
+    }
+
+    startRecordingForEvent() {
+      if (!autoClip.checked) {
+        this.pendingClipText = 'off';
+        return;
+      }
+
+      const stream = this.getRecordStream();
+      if (!stream || typeof MediaRecorder === 'undefined') {
+        this.pendingClipText = 'Clip unsupported';
+        return;
+      }
+
+      const mimeType = pickMimeType();
+      let rec;
+      try {
+        rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      } catch (_) {
+        this.pendingClipText = 'Clip recorder error';
+        return;
+      }
+
+      this.pendingClipText = 'saving...';
+      this.recChunks = [];
+
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) this.recChunks.push(ev.data); };
+
+      rec.onstop = async () => {
+        const blob = new Blob(this.recChunks, { type: rec.mimeType || 'video/webm' });
+        if (!blob.size) {
+          this.pendingClipText = 'Save failed';
+          if (this.recentRow?.tdL) this.recentRow.tdL.textContent = this.pendingClipText;
+          return;
+        }
+        try {
+          const res = await uploadClipToServer(blob, this.name, this.eventId);
+          this.pendingClipText = `Saved: ${res.filename}`;
+
+          // update dashboard recent row
+          if (this.recentRow?.tdL) {
+            this.recentRow.tdL.textContent = this.pendingClipText;
+            this.recentRow.tdL.style.color = 'var(--text)';
+          }
+
+          // update stored log row on server
+          const timeText = this.recentRow?.tdT?.textContent || '';
+          const eventText = this.recentRow?.tdE?.textContent || '';
+          await this.updateStoredLogClip(res.filename, timeText, eventText);
+
+        } catch (_) {
+          this.pendingClipText = 'Save failed';
+          if (this.recentRow?.tdL) this.recentRow.tdL.textContent = this.pendingClipText;
+        }
+      };
+
+      rec.start(250);
+      this.recorder = rec;
+
+      if (clipMode.value === 'fixed') {
+        const seconds = Math.max(3, Math.min(60, Number(clipSec.value) || 8));
+        setTimeout(() => { try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch(_){} }, seconds * 1000);
+      } else {
+        if (this.eventCapTimer) clearTimeout(this.eventCapTimer);
+        this.eventCapTimer = setTimeout(() => { try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch(_){} }, this.eventMaxMs);
+      }
+    }
+
+    stopRecordingIfAny() {
+      if (this.eventCapTimer) { clearTimeout(this.eventCapTimer); this.eventCapTimer = null; }
+      try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch (_) {}
+      this.recorder = null;
+      this.recChunks = [];
+    }
+
+    stopRecordingForEventEnd() {
+      if (clipMode.value !== 'event') return;
+      try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch (_) {}
+    }
+
+    updatePredictionAndTrail(topDet) {
+      const cx = (topDet.x1 + topDet.x2) / 2;
+      const cy = (topDet.y1 + topDet.y2) / 2;
+
+      const t = performance.now();
+      this.trail.unshift({ x: cx, y: cy, t });
+      if (this.trail.length > this.trailMax) this.trail.length = this.trailMax;
+      this.trail = this.trail.filter(p => (t - p.t) <= this.trailKeepMs);
+
+      if (!this.lastCenter || !this.lastCenterT) {
+        this.lastCenter = { x: cx, y: cy };
+        this.lastCenterT = t;
+        this.vel = { vx: 0, vy: 0 };
+        this.acc = { ax: 0, ay: 0 };
+        this.predCurve = null;
+        return;
+      }
+
+      const dt = (t - this.lastCenterT) / 1000.0;
+      if (dt <= 0.0001) return;
+
+      const dx = cx - this.lastCenter.x;
+      const dy = cy - this.lastCenter.y;
+
+      const instVx = dx / dt;
+      const instVy = dy / dt;
+
+      const vAlpha = 0.75;
+      const prevVx = this.vel.vx;
+      const prevVy = this.vel.vy;
+
+      this.vel.vx = vAlpha * this.vel.vx + (1 - vAlpha) * instVx;
+      this.vel.vy = vAlpha * this.vel.vy + (1 - vAlpha) * instVy;
+
+      const instAx = (this.vel.vx - prevVx) / dt;
+      const instAy = (this.vel.vy - prevVy) / dt;
+
+      const aAlpha = 0.80;
+      this.acc.ax = aAlpha * this.acc.ax + (1 - aAlpha) * instAx;
+      this.acc.ay = aAlpha * this.acc.ay + (1 - aAlpha) * instAy;
+
+      this.lastCenter = { x: cx, y: cy };
+      this.lastCenterT = t;
+
+      const horizon = 1.2;
+      const steps = 6;
+      const pts = [];
+      for (let i = 1; i <= steps; i++) {
+        const tt = (horizon * i) / steps;
+        const px = cx + this.vel.vx * tt + 0.5 * this.acc.ax * tt * tt;
+        const py = cy + this.vel.vy * tt + 0.5 * this.acc.ay * tt * tt;
+        pts.push({ x: px, y: py });
+      }
+      this.predCurve = { start: { x: cx, y: cy }, pts };
+    }
+
+    async tick() {
+      if (!this.isDetecting) return;
+      if (this.video.readyState < 2) return;
+
+      const dataURL = await frameToDataUrl(this.video, 0.6);
+      if (!dataURL) return;
+
+      if (this.abortCtl) this.abortCtl.abort();
+      this.abortCtl = new AbortController();
+
+      const payload = {
+        frame: dataURL,
+        timestamp: new Date().toISOString(),
+        frame_no: 0,
+        persist: false,
+        conf: Number(confInput.value) || 0.4,
+        max_dim: Number(maxDimInput.value) || 640
+      };
+
+      const t0 = performance.now();
+
+      try {
+        const resp = await fetch(DETECT_ENDPOINT, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(payload),
+          signal: this.abortCtl.signal
+        });
+        if (!resp.ok) return;
+
+        const js = await resp.json();
+        lastMs.textContent = String(Math.round(performance.now() - t0));
+
+        const dets = js.detections || [];
+        const hasDrone = (js.detected && dets.length > 0);
+
+        if (hasDrone) {
+          const top = dets.slice().sort((a,b) => (b.confidence||0) - (a.confidence||0))[0];
+          this.updatePredictionAndTrail(top);
+          this.lastSeenTs = Date.now();
+        } else {
+          this.clearMotion();
+        }
+
+        const extras = { predCurve: this.predCurve, trail: this.trail.slice().reverse() };
+        drawOverlay(this.video, this.overlay, this.recordEl, dets, extras);
+
+        // EVENT START
+        if (hasDrone && !this.inEvent) {
+          this.inEvent = true;
+          this.eventId += 1;
+          this.eventStartTs = Date.now();
+          this.alertedThisEvent = false;
+
+          // Alert immediately
+          if (!this.alertedThisEvent) {
+            toast(t('alertTitle'), `${t('alertBody')} ${this.name}`);
+            this.alertedThisEvent = true;
+          }
+
+          // Create dashboard recent row immediately
+          const start = this.eventStartTs;
+          const timeText = `${fmtHHMMSS(start)} – ...`;
+          const eventText = `DRONE #${this.eventId}`;
+          this.recentRow = addRecentLogRow({
+            timeText,
+            event: eventText,
+            source: this.name,
+            clipText: autoClip.checked ? 'saving...' : 'off'
+          });
+
+          // create stored log skeleton on server (best-effort)
+          await this.createStoredLogSkeleton(timeText, eventText);
+
+          // start recording
+          this.startRecordingForEvent();
+        }
+
+        // EVENT END
+        if (!hasDrone && this.inEvent) {
+          const goneFor = Date.now() - this.lastSeenTs;
+          if (goneFor > this.goneDelayMs) {
+            const start = this.eventStartTs || Date.now();
+            const end = Date.now();
+            const timeText = `${fmtHHMMSS(start)} – ${fmtHHMMSS(end)}`;
+
+            // finalize dashboard row
+            if (this.recentRow?.tdT) this.recentRow.tdT.textContent = timeText;
+
+            // update stored log time even before clip finishes uploading
+            if (this.storedLogId) {
+              try {
+                await fetch(LOGS_UPDATE_ENDPOINT, {
+                  method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body: JSON.stringify({
+                    id: this.storedLogId,
+                    time: timeText,
+                    event: this.recentRow?.tdE?.textContent || `DRONE #${this.eventId}`,
+                    source: this.name,
+                    clip: this.pendingClipText || (autoClip.checked ? 'saving...' : 'off')
+                  })
+                });
+              } catch (_) {}
+            }
+
+            // stop recording only for event mode
+            this.stopRecordingForEventEnd();
+
+            this.inEvent = false;
+            this.eventStartTs = null;
+          }
+        }
+
+      } catch (_) {
+        // ignore abort/network
+      }
+    }
+  }
+
+  // =======================
+  // Multi-camera: shared tiles (Dashboard + Live share the same tiles)
+  // =======================
+  const dashCamGrid = document.getElementById('dashCamGrid');
+  const liveCamGrid = document.getElementById('liveCamGrid');
+
+  const dashAddCam = document.getElementById('dashAddCam');
+  const dashRefreshDevices = document.getElementById('dashRefreshDevices');
+  const dashStartAll = document.getElementById('dashStartAll');
+  const dashStopAll = document.getElementById('dashStopAll');
+  const dashDetectAll = document.getElementById('dashDetectAll');
+  const dashDetectOffAll = document.getElementById('dashDetectOffAll');
+
+  const liveAddCam = document.getElementById('liveAddCam');
+  const liveRefreshDevices = document.getElementById('liveRefreshDevices');
+  const liveStartAll = document.getElementById('liveStartAll');
+  const liveStopAll = document.getElementById('liveStopAll');
+  const liveDetectAll = document.getElementById('liveDetectAll');
+  const liveDetectOffAll = document.getElementById('liveDetectOffAll');
+
+  let deviceList = [];
+  let camTiles = [];
+  let camIndex = 0;
+
+  async function refreshDevices() {
+    try {
+      // ask permission to show labels
+      try {
+        const tmp = await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
+        tmp.getTracks().forEach(t => t.stop());
+      } catch (_) {}
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      deviceList = devices.filter(d => d.kind === 'videoinput');
+      setStatus(`devices: ${deviceList.length}`, true);
+    } catch (e) {
+      deviceList = [];
+      setStatus('device list failed', false);
+    }
+    for (const t of camTiles) t.populateDevices();
+  }
+
+  function mountTiles() {
+    // show the same tiles in BOTH Dashboard and Live pages:
+    // (We physically keep tile element once; we will clone view with a wrapper)
+    // Easiest: keep tile in Dashboard; also render a lightweight mirror in Live that points to same stream? Not possible.
+    // So: We keep tiles in Dashboard, and in Live we show a note + also move DOM on page switch.
+  }
+
+  function moveTilesTo(target) {
+    // Move the existing tile DOM nodes to whichever page is active
+    const grid = (target === 'dashboard') ? dashCamGrid : liveCamGrid;
+    // move all tile elements
+    for (const t of camTiles) grid.appendChild(t.el);
+  }
+
+  // When switching pages, move camera tiles accordingly
+  const origShowPage = showPage;
+  showPage = function(which) {
+    origShowPage(which);
+    if (which === 'dashboard') moveTilesTo('dashboard');
+    if (which === 'live') moveTilesTo('live');
+  };
+
+  function createCamTile() {
+    camIndex += 1;
+    const name = `CAM${camIndex}`;
+
+    const tile = document.createElement('div');
+    tile.className = 'card';
+    tile.innerHTML = `
+      <div class="card-h">
+        <b>${name}</b>
+        <div class="btns">
+          <button class="ghost btnRemove">Remove</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="row">
+          <div>
+            <label>Camera Device</label>
+            <select class="selDevice"></select>
+          </div>
+          <div>
+            <label>Resolution Hint</label>
+            <select class="selRes">
+              <option value="default">Default</option>
+              <option value="720">1280×720</option>
+              <option value="1080">1920×1080</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="viewer">
+          <video class="vid" autoplay playsinline muted></video>
+          <canvas class="overlay ov"></canvas>
+          <canvas class="record rc"></canvas>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="btns">
+          <button class="primary btnStart">Start</button>
+          <button class="danger btnStop">Stop</button>
+          <button class="btnDetOn">Detect On</button>
+          <button class="danger btnDetOff">Detect Off</button>
+        </div>
+
+        <div class="divider"></div>
+        <div class="hint">Source: <b>${name}</b></div>
+      </div>
+    `;
+
+    dashCamGrid.appendChild(tile);
+
+    const vid = tile.querySelector('.vid');
+    const ov = tile.querySelector('.ov');
+    const rc = tile.querySelector('.rc');
+    const selDevice = tile.querySelector('.selDevice');
+    const selRes = tile.querySelector('.selRes');
+
+    const detector = new Detector({ name, videoEl: vid, overlayEl: ov, recordEl: rc });
+
+    const tileObj = {
+      name,
+      el: tile,
+      vid,
+      ov,
+      rc,
+      detector,
+      stream: null,
+
+      populateDevices() {
+        const cur = selDevice.value;
+        selDevice.innerHTML = '';
+        const optAuto = document.createElement('option');
+        optAuto.value = '';
+        optAuto.textContent = 'Auto / Default';
+        selDevice.appendChild(optAuto);
+
+        for (let i = 0; i < deviceList.length; i++) {
+          const d = deviceList[i];
+          const opt = document.createElement('option');
+          opt.value = d.deviceId;
+          opt.textContent = d.label || `Camera ${i+1}`;
+          selDevice.appendChild(opt);
+        }
+        if (cur) selDevice.value = cur;
+      },
+
+      async start() {
+        await this.stop();
+        const deviceId = selDevice.value || null;
+        const res = selRes.value;
+
+        const constraints = { video: {}, audio:false };
+        if (deviceId) constraints.video.deviceId = { exact: deviceId };
+        if (res === '720') { constraints.video.width = { ideal: 1280 }; constraints.video.height = { ideal: 720 }; }
+        if (res === '1080') { constraints.video.width = { ideal: 1920 }; constraints.video.height = { ideal: 1080 }; }
+
+        try {
+          this.stream = await navigator.mediaDevices.getUserMedia(constraints);
+          vid.srcObject = this.stream;
+          setStatus(`${name}: ready`, true);
+          setTimeout(() => fitOverlayToVideo(vid, ov), 150);
+        } catch (e) {
+          setStatus(`${name}: denied`, false);
+        }
+      },
+
+      async stop() {
+        this.detector.stop();
+        if (this.stream) {
+          try { this.stream.getTracks().forEach(t => t.stop()); } catch (_) {}
+        }
+        this.stream = null;
+        vid.srcObject = null;
+        const ctx = ov.getContext('2d');
+        ctx.clearRect(0, 0, ov.width, ov.height);
+      },
+
+      remove() { this.stop(); tile.remove(); }
+    };
+
+    tileObj.populateDevices();
+
+    tile.querySelector('.btnStart').addEventListener('click', () => tileObj.start());
+    tile.querySelector('.btnStop').addEventListener('click', () => tileObj.stop());
+    tile.querySelector('.btnDetOn').addEventListener('click', () => tileObj.detector.start());
+    tile.querySelector('.btnDetOff').addEventListener('click', () => tileObj.detector.stop());
+    tile.querySelector('.btnRemove').addEventListener('click', () => {
+      camTiles = camTiles.filter(x => x !== tileObj);
+      tileObj.remove();
+    });
+
+    return tileObj;
+  }
+
+  async function startAll() {
+    let started = 0;
+    for (const t of camTiles) {
+      await t.start();
+      if (t.stream) started += 1;
+    }
+    setStatus(`${t('startAll')}: ${started} active`, true);
+  }
+  async function stopAll() {
+    for (const t of camTiles) await t.stop();
+    setStatus(t('stopAll'), true);
+  }
+  function detectAllOn() {
+    let on = 0;
+    for (const t of camTiles) {
+      if (t.stream) { t.detector.start(); on += 1; }
+    }
+    setStatus(`${t('detectOnAll')}: ${on}`, true);
+  }
+  function detectAllOff() {
+    for (const t of camTiles) t.detector.stop();
+    setStatus(t('detectOffAll'), true);
+  }
+
+  dashAddCam.addEventListener('click', async () => { if (!deviceList.length) await refreshDevices(); camTiles.push(createCamTile()); });
+  dashRefreshDevices.addEventListener('click', refreshDevices);
+  dashStartAll.addEventListener('click', startAll);
+  dashStopAll.addEventListener('click', stopAll);
+  dashDetectAll.addEventListener('click', detectAllOn);
+  dashDetectOffAll.addEventListener('click', detectAllOff);
+
+  liveAddCam.addEventListener('click', async () => { if (!deviceList.length) await refreshDevices(); camTiles.push(createCamTile()); moveTilesTo('live'); });
+  liveRefreshDevices.addEventListener('click', refreshDevices);
+  liveStartAll.addEventListener('click', startAll);
+  liveStopAll.addEventListener('click', stopAll);
+  liveDetectAll.addEventListener('click', detectAllOn);
+  liveDetectOffAll.addEventListener('click', detectAllOff);
+
+  // =======================
+  // File mode detector + alert
+  // =======================
+  const fileVideo = document.getElementById('fileVideo');
+  const fileOverlay = document.getElementById('fileOverlay');
+  const fileRecord = document.getElementById('fileRecord');
+  const fileDetector = new Detector({ name: 'FILE', videoEl: fileVideo, overlayEl: fileOverlay, recordEl: fileRecord });
+
+  const fileInput = document.getElementById('fileInput');
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    fileVideo.src = url;
+    fileVideo.play().catch(() => {});
+    setTimeout(() => fitOverlayToVideo(fileVideo, fileOverlay), 200);
+  });
+
+  document.getElementById('btnStartFileDetect').addEventListener('click', () => fileDetector.start());
+  document.getElementById('btnStopFileDetect').addEventListener('click', () => fileDetector.stop());
+
+  // =======================
+  // Init
+  // =======================
+  initThemeLang();
+  setAdminState(isAdmin);
+
+  (async () => {
+    await refreshDevices();
+    camTiles.push(createCamTile()); // initial camera tile
+    setStatus('idle', true);
+  })();
+
+</script>
+<script src="/static/auth.js"></script>
+</body>
+</html>

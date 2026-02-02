@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Register - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; display:flex; align-items:center; justify-content:center; height:100vh; }
+    .card { background:#fff; padding:24px; width:360px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.08); }
+    h2 { margin:0 0 12px 0; font-size:20px; }
+    label { display:block; font-size:13px; margin-top:8px; }
+    input { width:100%; padding:10px; margin-top:6px; box-sizing:border-box; }
+    .row { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
+    button { padding:8px 12px; border:0; background:#0078D7; color:#fff; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#6c757d; }
+    .msg { color:#c00; margin-top:10px; min-height:18px; }
+    .link { color:#0078D7; cursor:pointer; text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Create account</h2>
+    <label>Username</label>
+    <input id="regUsername" type="text" autocomplete="username" />
+    <label>Password</label>
+    <input id="regPassword" type="password" autocomplete="new-password" />
+    <div class="row">
+      <button id="regCancel" class="secondary">Cancel</button>
+      <button id="regSubmit">Register</button>
+    </div>
+    <div class="msg" id="regMsg"></div>
+    <div style="margin-top:12px; font-size:13px; color:#666;">
+      Already have an account? <span class="link" id="backToLogin">Sign in</span>
+    </div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+     document.getElementById('regSubmit').addEventListener('click', async () => {
+    const username = document.getElementById('regUsername').value.trim();
+    const password = document.getElementById('regPassword').value;
+    const msgEl = document.getElementById('regMsg');
+    msgEl.textContent = '';
+    
+    if (!username || !password) {
+      msgEl.textContent = 'Username and password required';
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({ username, password })
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.ok) {
+        const loginResponse = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include',
+          body: JSON.stringify({ username, password })
+        });
+        
+        const loginData = await loginResponse.json();
+        
+        if (loginResponse.ok && loginData.ok) {
+          window.location.href = '/index.html';
+        } else {
+          msgEl.textContent = 'Registration successful but login failed. Please login manually.';
+        }
+      } else {
+        msgEl.textContent = data.error || 'Registration failed';
+      }
+    } catch (err) {
+      msgEl.textContent = err.error || err.message || 'Network error';
+    }
+  });
+
+  document.getElementById('regCancel').addEventListener('click', () => {
+    window.location.href = '/login.html';
+  });
+
+  document.getElementById('backToLogin').addEventListener('click', () => {
+    window.location.href = '/login.html';
+  });
+  </script>
+</body>
+</html>
