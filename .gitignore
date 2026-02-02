@@ -1,0 +1,25 @@
+# Specific files
+/src/detections.db
+/src/best_v11.pt
+
+# Whole output/clip folder
+/src/detection_clips/
+
+/runs/
+/weights/
+/models/*.pt
+/models/*.pth
+/models/*.engine
+/models/*.onnx
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS junk
+.DS_Store
+Thumbs.db
