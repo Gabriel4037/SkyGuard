@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Camera Monitor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #1a1a1a; color: #fff; }
+        .container { padding: 20px; }
+        .header {
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        .header h1 { margin-bottom: 10px; }
+        .subtext { color: #9ca3af; font-size: 13px; max-width: 720px; }
+        .toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
+        .logout-btn,
+        .back-btn {
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .logout-btn { background: #ff4444; }
+        .logout-btn:hover { background: #cc0000; }
+        .back-btn { background: #334155; }
+        .back-btn:hover { background: #1e293b; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            clear: both;
+        }
+
+        .camera-card {
+            background: #222;
+            border: 2px solid #444;
+            border-radius: 8px;
+            padding: 15px;
+            overflow: hidden;
+        }
+
+        .camera-card h3 {
+            margin-bottom: 10px;
+            color: #4db8ff;
+        }
+
+        .camera-info {
+            font-size: 12px;
+            color: #aaa;
+            margin-bottom: 10px;
+        }
+
+        .stream-container {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border-radius: 5px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .stream-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 12px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-online { background: #00dd00; }
+        .status-offline { background: #dd0000; }
+        .empty-state {
+            border: 1px dashed #475569;
+            padding: 32px;
+            border-radius: 10px;
+            text-align: center;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Admin Camera Monitor</h1>
+                <div class="subtext">View the latest uploaded frames from active detector nodes on the central server.</div>
+            </div>
+            <div class="toolbar">
+                <button class="back-btn" onclick="goBack()">Back to Dashboard</button>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <div id="cameras-grid" class="grid">
+            <div class="empty-state">Loading active cameras...</div>
+        </div>
+    </div>
+
+    <script>
+        const monitorTimers = new Map();
+        const frameObjectUrls = new Map();
+        let reloadTimerId = null;
+
+        async function loadCameras() {
+            try {
+                const response = await fetch('/api/admin/cameras', {
+                    credentials: 'include'
+                });
+                const data = await response.json();
+
+                if (!data.ok) {
+                    showEmptyState('Failed to load active cameras.');
+                    return;
+                }
+
+                const grid = document.getElementById('cameras-grid');
+                grid.innerHTML = '';
+                clearAllMonitors();
+
+                if (!data.cameras || data.cameras.length === 0) {
+                    showEmptyState('No active detector cameras are currently registered.');
+                    return;
+                }
+
+                data.cameras.forEach(camera => {
+                    const card = createCameraCard(camera);
+                    grid.appendChild(card);
+                    startMonitoring(camera.camera_id);
+                });
+            } catch (error) {
+                console.error('Error loading cameras:', error);
+                showEmptyState('Unable to reach the camera monitor service.');
+            }
+        }
+
+        function createCameraCard(camera) {
+            const card = document.createElement('div');
+            card.className = 'camera-card';
+            card.id = `camera-${camera.camera_id}`;
+
+            card.innerHTML = `
+                <h3>${camera.camera_name}</h3>
+                <div class="camera-info">
+                    <div><strong>User:</strong> ${camera.username}</div>
+                    <div><strong>Camera ID:</strong> ${camera.internal_id}</div>
+                    <div><strong>Status:</strong>
+                        <span class="status-indicator status-online"></span>
+                        <span id="status-${camera.camera_id}">Online</span>
+                    </div>
+                </div>
+                <div class="stream-container">
+                    <img id="frame-${camera.camera_id}" src="" alt="Loading..." />
+                    <div class="loading" id="loading-${camera.camera_id}">Waiting for frame...</div>
+                </div>
+            `;
+
+            return card;
+        }
+
+        function showEmptyState(message) {
+            const grid = document.getElementById('cameras-grid');
+            grid.innerHTML = `<div class="empty-state">${message}</div>`;
+        }
+
+        function clearAllMonitors() {
+            monitorTimers.forEach(timerId => clearInterval(timerId));
+            monitorTimers.clear();
+            frameObjectUrls.forEach(url => URL.revokeObjectURL(url));
+            frameObjectUrls.clear();
+        }
+
+        function startMonitoring(cameraId) {
+            if (monitorTimers.has(cameraId)) return;
+            const timerId = setInterval(() => {
+                updateFrame(cameraId);
+            }, 500);
+            monitorTimers.set(cameraId, timerId);
+        }
+
+        async function updateFrame(cameraId) {
+            try {
+                const frameImg = document.getElementById(`frame-${cameraId}`);
+                const loading = document.getElementById(`loading-${cameraId}`);
+                const status = document.getElementById(`status-${cameraId}`);
+                if (!frameImg || !loading) return;
+                const url = `/api/admin/camera/frame?camera_id=${cameraId}&t=${Date.now()}`;
+
+                const response = await fetch(url, {
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const objectUrl = URL.createObjectURL(blob);
+                    const previousUrl = frameObjectUrls.get(cameraId);
+                    if (previousUrl) URL.revokeObjectURL(previousUrl);
+                    frameObjectUrls.set(cameraId, objectUrl);
+                    frameImg.src = objectUrl;
+                    loading.style.display = 'none';
+                    if (status) status.textContent = 'Online';
+                } else {
+                    loading.style.display = 'block';
+                    loading.textContent = 'No frame yet';
+                    if (status) status.textContent = 'Waiting';
+                }
+            } catch (error) {
+                console.error(`Error updating frame for camera ${cameraId}:`, error);
+                const status = document.getElementById(`status-${cameraId}`);
+                if (status) status.textContent = 'Offline';
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+                window.location.href = '/login.html';
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        }
+
+        function goBack() {
+            window.location.href = '/index.html';
+        }
+
+        function cleanup() {
+            clearAllMonitors();
+            if (reloadTimerId) {
+                clearInterval(reloadTimerId);
+                reloadTimerId = null;
+            }
+        }
+
+        window.addEventListener('load', () => {
+            loadCameras();
+            reloadTimerId = setInterval(loadCameras, 30000);
+        });
+        window.addEventListener('beforeunload', cleanup);
+    </script>
+</body>
+</html>

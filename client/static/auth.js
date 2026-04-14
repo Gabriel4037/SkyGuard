@@ -26,7 +26,10 @@
       data = { raw: txt };
     }
     if (!res.ok) {
-      const err = data || { error: "Request failed", status: res.status };
+      const err = data || { error: "Request failed" };
+      if (typeof err === "object" && err !== null && err.status == null) {
+        err.status = res.status;
+      }
       throw err;
     }
     return data;
@@ -67,18 +70,42 @@
     return res.user || null;
   }
 
+  async function getClientConnection() {
+    return await apiFetch("/api/client/connection", { method: "GET" });
+  }
+
+  async function setClientConnection({ server_ip }) {
+    return await apiFetch("/api/client/connection", {
+      method: "POST",
+      body: { server_ip },
+    });
+  }
+
+  async function testClientConnection({ server_ip }) {
+    return await apiFetch("/api/client/connection/test", {
+      method: "POST",
+      body: { server_ip },
+    });
+  }
+
   window.authApi = window.authApi || {};
   window.authApi.apiFetch = apiFetch;
   window.authApi.authLogin = authLogin;
   window.authApi.authRegister = authRegister;
   window.authApi.authMe = authMe;
   window.authApi.refreshCurrentUser = refreshCurrentUser;
+  window.authApi.getClientConnection = getClientConnection;
+  window.authApi.setClientConnection = setClientConnection;
+  window.authApi.testClientConnection = testClientConnection;
 
   window.apiFetch = apiFetch;
   window.authLogin = authLogin;
   window.authRegister = authRegister;
   window.authMe = authMe;
   window.refreshCurrentUser = refreshCurrentUser;
+  window.getClientConnection = getClientConnection;
+  window.setClientConnection = setClientConnection;
+  window.testClientConnection = testClientConnection;
 
   window.__auth_redirecting = window.__auth_redirecting || false;
 

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Admin Dashboard - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 0; background: #eef2f7; color: #0f172a; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 18px 40px; }
+    .hero { background: linear-gradient(135deg, #0f172a, #1d4ed8); color: #fff; border-radius: 18px; padding: 28px; box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22); }
+    .hero h1 { margin: 0 0 8px; font-size: 30px; }
+    .hero p { margin: 0; color: rgba(255,255,255,0.84); max-width: 760px; line-height: 1.5; }
+    .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+    .toolbar button { padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer; font-weight: 700; }
+    .toolbar .ghost { background: rgba(255,255,255,0.14); color: #fff; }
+    .toolbar .danger { background: #ef4444; color: #fff; }
+    .meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-top: 18px; }
+    .meta-card, .nav-card { background: #fff; border-radius: 16px; padding: 18px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08); }
+    .meta-card .label { color: #64748b; font-size: 13px; margin-bottom: 8px; }
+    .meta-card .value { font-size: 26px; font-weight: 800; }
+    .section-title { margin: 30px 0 14px; font-size: 20px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .nav-card h3 { margin: 0 0 8px; }
+    .nav-card p { margin: 0 0 14px; color: #475569; line-height: 1.45; min-height: 62px; }
+    .nav-card a { display: inline-block; padding: 10px 12px; border-radius: 10px; background: #0b5cff; color: #fff; text-decoration: none; font-weight: 700; }
+    .muted { color: #64748b; }
+    .notice { margin-top: 20px; background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; border-radius: 14px; padding: 14px 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="muted" style="color: rgba(255,255,255,0.72); font-size: 13px;">Central LAN Server</div>
+      <h1>Admin Dashboard</h1>
+      <p>Manage users, review uploaded detection logs and clips, monitor active detector nodes, and release updated `.pt` models for user-side detector machines.</p>
+      <div class="toolbar">
+        <button id="refreshBtn" class="ghost">Refresh Summary</button>
+        <button id="logoutBtn" class="danger">Logout</button>
+      </div>
+    </div>
+
+    <div class="meta">
+      <div class="meta-card">
+        <div class="label">Signed in as</div>
+        <div class="value" id="adminName">-</div>
+      </div>
+      <div class="meta-card">
+        <div class="label">Users</div>
+        <div class="value" id="userCount">-</div>
+      </div>
+      <div class="meta-card">
+        <div class="label">Stored Logs</div>
+        <div class="value" id="logCount">-</div>
+      </div>
+      <div class="meta-card">
+        <div class="label">Active Cameras</div>
+        <div class="value" id="cameraCount">-</div>
+      </div>
+    </div>
+
+    <h2 class="section-title">Management</h2>
+    <div class="grid">
+      <div class="nav-card">
+        <h3>User Management</h3>
+        <p>Create accounts, change roles, reset passwords, and remove users from the central server.</p>
+        <a href="/users.html">Open Users</a>
+      </div>
+      <div class="nav-card">
+        <h3>Detection Logs</h3>
+        <p>Review uploaded detection records, edit metadata, and download saved evidence clips.</p>
+        <a href="/admin_logs.html">Open Logs</a>
+      </div>
+      <div class="nav-card">
+        <h3>Admin Monitor</h3>
+        <p>View the latest camera frames uploaded from active detector nodes across the LAN.</p>
+        <a href="/admin_monitor.html">Open Monitor</a>
+      </div>
+      <div class="nav-card">
+        <h3>Model Center</h3>
+        <p>Release a new `.pt` model on the central server so detector nodes can update when needed.</p>
+        <a href="/model_manager.html">Open Model Center</a>
+      </div>
+    </div>
+
+    <div class="notice">
+      This admin app is for management only. Live detection runs on the detector node app, not on the central server.
+    </div>
+    <div class="notice" id="errorBox" style="display:none; background:#fef2f2; color:#b91c1c; border-color:#fca5a5;"></div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+
+    async function ensureAdmin() {
+      const me = await apiFetch('/api/auth/me', { method: 'GET' });
+      if (!me || !me.user || me.user.role !== 'admin') {
+        window.location.replace('/login.html');
+        return null;
+      }
+      return me.user;
+    }
+
+    async function loadSummary() {
+      const errorBox = document.getElementById('errorBox');
+      errorBox.style.display = 'none';
+      try {
+        const [users, logs, cameras] = await Promise.all([
+          apiFetch('/api/users', { method: 'GET' }),
+          apiFetch('/api/logs', { method: 'GET' }),
+          apiFetch('/api/admin/cameras', { method: 'GET' })
+        ]);
+
+        document.getElementById('userCount').textContent = (users.users || []).length;
+        document.getElementById('logCount').textContent = (logs || []).length;
+        document.getElementById('cameraCount').textContent = (cameras.cameras || []).length;
+      } catch (error) {
+        errorBox.textContent = error.error || error.message || 'Unable to load central server summary.';
+        errorBox.style.display = 'block';
+        throw error;
+      }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      loadSummary().catch(() => {});
+    });
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+      } finally {
+        window.location.replace('/login.html');
+      }
+    });
+
+    (async () => {
+      try {
+        const admin = await ensureAdmin();
+        if (!admin) return;
+        document.getElementById('adminName').textContent = admin.username || 'admin';
+      } catch (_) {
+        window.location.replace('/login.html');
+        return;
+      }
+
+      try {
+        await loadSummary();
+      } catch (_) {
+        // Keep the dashboard visible and show the inline error box instead of
+        // bouncing the user back to login for unrelated loading failures.
+      }
+    })();
+  </script>
+</body>
+</html>

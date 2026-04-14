@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Logs - Central Server</title>
+  <style>
+    :root {
+      --bg: #08111f;
+      --panel: #0f1b2d;
+      --panel-2: #13233a;
+      --panel-soft: rgba(255,255,255,0.05);
+      --text: #e6edf7;
+      --muted: #9fb2c9;
+      --line: rgba(159,178,201,0.16);
+      --accent: #49a6ff;
+      --accent-soft: rgba(73,166,255,0.14);
+      --danger: #f06161;
+      --shadow: 0 18px 48px rgba(0,0,0,0.28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background:
+        radial-gradient(900px 540px at 12% -8%, rgba(73,166,255,0.18), transparent 60%),
+        radial-gradient(700px 480px at 100% 0%, rgba(55,214,122,0.12), transparent 55%),
+        var(--bg);
+      color: var(--text);
+    }
+    .shell {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .title h1 {
+      margin: 0;
+      font-size: 28px;
+    }
+    .title p {
+      margin: 6px 0 0;
+      color: var(--muted);
+    }
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    button, a.linkbtn {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      cursor: pointer;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    button.primary, a.linkbtn.primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    button.ghost, a.linkbtn.ghost {
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+    button.danger {
+      background: var(--danger);
+      color: #fff;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(420px, 1.2fr) minmax(320px, 0.9fr);
+      gap: 18px;
+    }
+    .panel {
+      background: linear-gradient(180deg, rgba(17,31,50,0.96), rgba(12,22,36,0.96));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .panel-head h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .panel-head .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .summary {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 14px 20px 0;
+    }
+    .chip {
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .chip strong {
+      color: var(--text);
+    }
+    .table-wrap {
+      padding: 14px 16px 18px;
+      max-height: 72vh;
+      overflow: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    th, td {
+      text-align: left;
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      font-size: 14px;
+    }
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      position: sticky;
+      top: 0;
+      background: #102033;
+    }
+    tr.clickable {
+      cursor: pointer;
+    }
+    tr.clickable:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    tr.clickable.active {
+      background: rgba(73,166,255,0.12);
+    }
+    .log-event {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .clip-tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: 12px;
+      background: rgba(255,255,255,0.06);
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+    .clip-tag.ok {
+      background: var(--accent-soft);
+      color: #8ed1ff;
+      border-color: rgba(73,166,255,0.3);
+    }
+    .detail {
+      padding: 18px 20px 20px;
+      display: grid;
+      gap: 16px;
+    }
+    .meta {
+      display: grid;
+      gap: 12px;
+    }
+    .field {
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+    .field label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+    .field input, .field textarea {
+      width: 100%;
+      border: 0;
+      outline: none;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      resize: vertical;
+      min-height: 24px;
+    }
+    .field input::placeholder, .field textarea::placeholder {
+      color: var(--muted);
+    }
+    .viewer {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #020617;
+      overflow: hidden;
+      min-height: 280px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .viewer video {
+      width: 100%;
+      max-height: 420px;
+      background: #000;
+      display: block;
+    }
+    .viewer-empty {
+      color: #94a3b8;
+      font-size: 14px;
+      padding: 24px;
+      text-align: center;
+    }
+    .detail-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    @media (max-width: 1080px) {
+      .grid { grid-template-columns: 1fr; }
+      .table-wrap { max-height: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="topbar">
+      <div class="title">
+        <h1>Detection Logs</h1>
+        <p>Review synced events and inspect saved clips from client detectors.</p>
+      </div>
+      <div class="actions">
+        <button id="reloadBtn" class="ghost">Reload</button>
+        <button id="backBtn" class="ghost">Back to Dashboard</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Event List</h2>
+            <div class="muted">Newest synced logs appear first.</div>
+          </div>
+          <div class="status" id="listStatus">Loading...</div>
+        </div>
+        <div class="summary">
+          <div class="chip"><strong id="totalLogs">0</strong> logs</div>
+          <div class="chip"><strong id="logsWithVideo">0</strong> with clip</div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:72px;">ID</th>
+                <th style="width:180px;">Time</th>
+                <th>Event</th>
+                <th style="width:140px;">Source</th>
+                <th style="width:120px;">Clip</th>
+              </tr>
+            </thead>
+            <tbody id="logRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Selected Log</h2>
+            <div class="muted">View details and play the saved clip.</div>
+          </div>
+          <div class="status" id="detailStatus">No log selected</div>
+        </div>
+        <div class="detail">
+          <div class="meta">
+            <div class="field">
+              <label for="logTime">Time</label>
+              <input id="logTime" />
+            </div>
+            <div class="field">
+              <label for="logSource">Source</label>
+              <input id="logSource" />
+            </div>
+            <div class="field">
+              <label for="logEvent">Event</label>
+              <textarea id="logEvent" rows="3"></textarea>
+            </div>
+            <div class="field">
+              <label for="logClip">Clip</label>
+              <input id="logClip" />
+            </div>
+          </div>
+
+          <div class="viewer" id="viewer">
+            <div class="viewer-empty" id="viewerEmpty">Select a log with a saved clip to preview the video here.</div>
+            <video id="clipPlayer" controls playsinline hidden></video>
+          </div>
+
+          <div class="detail-actions">
+            <button id="saveBtn" class="primary">Save Changes</button>
+            <a id="downloadBtn" class="linkbtn ghost" href="#" hidden download>Download Clip</a>
+            <button id="deleteBtn" class="danger">Delete Log</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const logRows = document.getElementById('logRows');
+    const totalLogs = document.getElementById('totalLogs');
+    const logsWithVideo = document.getElementById('logsWithVideo');
+    const listStatus = document.getElementById('listStatus');
+    const detailStatus = document.getElementById('detailStatus');
+    const logTime = document.getElementById('logTime');
+    const logSource = document.getElementById('logSource');
+    const logEvent = document.getElementById('logEvent');
+    const logClip = document.getElementById('logClip');
+    const clipPlayer = document.getElementById('clipPlayer');
+    const viewerEmpty = document.getElementById('viewerEmpty');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let logs = [];
+    let selectedId = null;
+
+    function extractFilename(clipText) {
+      if (!clipText) return null;
+      const text = String(clipText);
+      const idx = text.indexOf('Saved:');
+      if (idx === -1) return null;
+      return text.slice(idx + 6).trim();
+    }
+
+    async function ensureAdmin() {
+      const me = await apiFetch('/api/auth/me', { method: 'GET' });
+      if (!me || !me.user || me.user.role !== 'admin') {
+        window.location.replace('/login.html');
+        return false;
+      }
+      return true;
+    }
+
+    function setViewerForLog(log) {
+      const clipFile = extractFilename(log?.clip);
+      if (!clipFile) {
+        clipPlayer.hidden = true;
+        clipPlayer.removeAttribute('src');
+        clipPlayer.load();
+        viewerEmpty.hidden = false;
+        viewerEmpty.textContent = 'No saved clip is attached to this log.';
+        downloadBtn.hidden = true;
+        downloadBtn.removeAttribute('href');
+        return;
+      }
+
+      clipPlayer.hidden = false;
+      viewerEmpty.hidden = true;
+      clipPlayer.src = '/api/clip/view?file=' + encodeURIComponent(clipFile);
+      downloadBtn.hidden = false;
+      downloadBtn.href = '/api/clip/download?file=' + encodeURIComponent(clipFile);
+    }
+
+    function selectedLog() {
+      return logs.find((item) => Number(item.id) === Number(selectedId)) || null;
+    }
+
+    function fillDetail(log) {
+      if (!log) {
+        logTime.value = '';
+        logSource.value = '';
+        logEvent.value = '';
+        logClip.value = '';
+        detailStatus.textContent = 'No log selected';
+        setViewerForLog(null);
+        return;
+      }
+      logTime.value = log.time || '';
+      logSource.value = log.source || '';
+      logEvent.value = log.event || '';
+      logClip.value = log.clip || '';
+      detailStatus.textContent = 'Editing log #' + log.id;
+      setViewerForLog(log);
+    }
+
+    function renderRows() {
+      logRows.innerHTML = '';
+      totalLogs.textContent = String(logs.length);
+      logsWithVideo.textContent = String(logs.filter((item) => extractFilename(item.clip)).length);
+
+      if (!logs.length) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="5" style="color:#64748b;padding:20px 10px;">No synced logs found.</td>';
+        logRows.appendChild(tr);
+        fillDetail(null);
+        return;
+      }
+
+      for (const log of logs) {
+        const tr = document.createElement('tr');
+        tr.className = 'clickable' + (Number(log.id) === Number(selectedId) ? ' active' : '');
+        tr.innerHTML = `
+          <td>${log.id ?? '-'}</td>
+          <td>${log.time ?? '-'}</td>
+          <td class="log-event">${log.event ?? '-'}</td>
+          <td>${log.source ?? '-'}</td>
+          <td><span class="clip-tag ${extractFilename(log.clip) ? 'ok' : ''}">${extractFilename(log.clip) ? 'Saved' : 'None'}</span></td>
+        `;
+        tr.addEventListener('click', () => {
+          selectedId = log.id;
+          renderRows();
+          fillDetail(log);
+        });
+        logRows.appendChild(tr);
+      }
+
+      if (!selectedLog()) {
+        selectedId = logs[0].id;
+      }
+      fillDetail(selectedLog());
+    }
+
+    async function loadLogs() {
+      listStatus.textContent = 'Loading...';
+      const data = await apiFetch('/api/logs', { method: 'GET' });
+      logs = Array.isArray(data) ? data : [];
+      renderRows();
+      listStatus.textContent = 'Updated just now';
+    }
+
+    async function saveSelected() {
+      const log = selectedLog();
+      if (!log) return;
+      await apiFetch('/api/logs/update', {
+        method: 'POST',
+        body: {
+          id: log.id,
+          time: logTime.value.trim(),
+          event: logEvent.value.trim(),
+          source: logSource.value.trim(),
+          clip: logClip.value.trim()
+        }
+      });
+      await loadLogs();
+      detailStatus.textContent = 'Saved log #' + log.id;
+    }
+
+    async function deleteSelected() {
+      const log = selectedLog();
+      if (!log) return;
+      if (!confirm('Delete this log?')) return;
+      await apiFetch('/api/logs/delete', {
+        method: 'POST',
+        body: { id: log.id }
+      });
+      selectedId = null;
+      await loadLogs();
+      detailStatus.textContent = 'Log deleted';
+    }
+
+    document.getElementById('reloadBtn').addEventListener('click', loadLogs);
+    document.getElementById('backBtn').addEventListener('click', () => {
+      window.location.replace('/index.html');
+    });
+    document.getElementById('saveBtn').addEventListener('click', saveSelected);
+    document.getElementById('deleteBtn').addEventListener('click', deleteSelected);
+
+    (async () => {
+      try {
+        const ok = await ensureAdmin();
+        if (ok) {
+          await loadLogs();
+          window.setInterval(() => { loadLogs().catch(() => {}); }, 30000);
+        }
+      } catch (_) {
+        window.location.replace('/login.html');
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Register - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; display:flex; align-items:center; justify-content:center; height:100vh; }
+    .card { background:#fff; padding:24px; width:400px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.08); }
+    h2 { margin:0 0 12px 0; font-size:20px; }
+    label { display:block; font-size:13px; margin-top:8px; }
+    input { width:100%; padding:10px; margin-top:6px; box-sizing:border-box; }
+    .row { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
+    button { padding:8px 12px; border:0; background:#0078D7; color:#fff; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#6c757d; }
+    .msg { color:#c00; margin-top:10px; min-height:18px; }
+    .status { margin-top:10px; font-size:12px; color:#495057; min-height:18px; }
+    .status.ok { color:#198754; }
+    .link { color:#0078D7; cursor:pointer; text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Create account</h2>
+    <label>Server IP</label>
+    <input id="serverIp" type="text" placeholder="192.168.1.50" />
+    <div class="row" style="margin-top:10px; justify-content:flex-start;">
+      <button id="connectBtn">Connect</button>
+    </div>
+    <div class="status" id="connectMsg"></div>
+    <label>Username</label>
+    <input id="regUsername" type="text" autocomplete="username" />
+    <label>Password</label>
+    <input id="regPassword" type="password" autocomplete="new-password" />
+    <div class="row">
+      <button id="regCancel" class="secondary">Cancel</button>
+      <button id="regSubmit">Register</button>
+    </div>
+    <div class="msg" id="regMsg"></div>
+    <div style="margin-top:12px; font-size:13px; color:#666;">
+      Already have an account? <span class="link" id="backToLogin">Sign in</span>
+    </div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const { authRegister, authLogin, refreshCurrentUser, getClientConnection, setClientConnection, testClientConnection } = window.authApi || {};
+    let isConnected = false;
+
+    async function waitForSessionReady(retries = 10, delayMs = 120) {
+      for (let i = 0; i < retries; i += 1) {
+        const current = await refreshCurrentUser();
+        if (current) return current;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      return null;
+    }
+
+    function setConnectStatus(text, ok = false) {
+      const el = document.getElementById('connectMsg');
+      el.textContent = text || '';
+      el.className = ok ? 'status ok' : 'status';
+      isConnected = !!ok;
+    }
+
+    async function loadConnection() {
+      try {
+        const payload = await getClientConnection();
+        if (payload && payload.server_ip) {
+          document.getElementById('serverIp').value = payload.server_ip;
+        }
+      } catch (_) {}
+    }
+
+    async function connectToServer() {
+      const serverIp = document.getElementById('serverIp').value.trim();
+      if (!serverIp) {
+        setConnectStatus('Server IP required');
+        return false;
+      }
+      try {
+        const test = await testClientConnection({ server_ip: serverIp });
+        if (!test.ok) throw test;
+        const saved = await setClientConnection({ server_ip: serverIp });
+        document.getElementById('serverIp').value = saved.server_ip || serverIp;
+        localStorage.setItem('client_server_ip', saved.server_ip || serverIp);
+        setConnectStatus(`Connected to ${saved.server_url}`, true);
+        return true;
+      } catch (err) {
+        setConnectStatus(err.error || err.message || 'Cannot reach server');
+        return false;
+      }
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+      await connectToServer();
+    });
+
+    document.getElementById('regSubmit').addEventListener('click', async () => {
+      const username = document.getElementById('regUsername').value.trim();
+      const password = document.getElementById('regPassword').value;
+      const msgEl = document.getElementById('regMsg');
+      msgEl.textContent = '';
+
+      if (!isConnected) {
+        const ok = await connectToServer();
+        if (!ok) {
+          msgEl.textContent = 'Connect to the server first';
+          return;
+        }
+      }
+
+      if (!username || !password) {
+        msgEl.textContent = 'Username and password required';
+        return;
+      }
+
+      try {
+        await authRegister({ username, password });
+        await authLogin({ username, password });
+        const currentUser = await waitForSessionReady();
+        if (!currentUser) throw { error: 'Session did not become ready' };
+        window.location.replace('/index.html');
+      } catch (err) {
+        msgEl.textContent = err.error || err.message || 'Registration failed';
+      }
+    });
+
+    document.getElementById('regCancel').addEventListener('click', () => {
+      window.location.replace('/login.html');
+    });
+
+    document.getElementById('backToLogin').addEventListener('click', () => {
+      window.location.replace('/login.html');
+    });
+
+    (async () => {
+      try {
+        const savedIp = localStorage.getItem('client_server_ip');
+        if (savedIp) {
+          document.getElementById('serverIp').value = savedIp;
+        }
+        await loadConnection();
+      } catch (_) {}
+    })();
+  </script>
+</body>
+</html>

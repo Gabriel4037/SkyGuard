@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SkyGuard Central Admin</title>
+  <style>
+    :root{
+      --bg:#08111f;
+      --panel:#0f1b2d;
+      --panel-2:#13233a;
+      --text:#e6edf7;
+      --muted:#9fb2c9;
+      --line:rgba(159,178,201,0.16);
+      --blue:#49a6ff;
+      --green:#37d67a;
+      --red:#f06161;
+      --shadow:0 18px 48px rgba(0,0,0,0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Segoe UI, Arial, sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(900px 540px at 12% -8%, rgba(73,166,255,0.18), transparent 60%),
+        radial-gradient(700px 480px at 100% 0%, rgba(55,214,122,0.12), transparent 55%),
+        var(--bg);
+    }
+    .wrap{max-width:1200px;margin:0 auto;padding:24px 18px 40px}
+    .hero,.metric,.card,.note,.error{
+      border:1px solid var(--line);
+      background:linear-gradient(180deg, rgba(17,31,50,0.96), rgba(12,22,36,0.96));
+      box-shadow:var(--shadow);
+      border-radius:22px;
+    }
+    .hero{padding:24px}
+    .hero-top,.hero-bottom,.metrics,.card-grid{display:grid;gap:14px}
+    .hero-top{grid-template-columns:1.2fr .8fr;align-items:start}
+    .hero-bottom{grid-template-columns:1fr auto;align-items:end;margin-top:18px}
+    .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#8ed1ff}
+    h1{margin:10px 0 6px;font-size:32px}
+    .sub{color:var(--muted);font-size:14px}
+    .status-chip{
+      display:inline-flex;align-items:center;gap:10px;
+      padding:10px 14px;border-radius:999px;border:1px solid var(--line);
+      background:rgba(255,255,255,0.04);color:var(--muted);font-size:13px
+    }
+    .status-dot{width:10px;height:10px;border-radius:999px;background:var(--green);box-shadow:0 0 0 7px rgba(55,214,122,0.12)}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    button,.card a{
+      border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer;text-decoration:none
+    }
+    .danger{background:var(--red);color:#fff}
+    .metrics{grid-template-columns:repeat(5, minmax(0,1fr));margin-top:18px}
+    .metric{padding:18px}
+    .label{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+    .value{margin-top:10px;font-size:32px;font-weight:800}
+    .line{margin-top:8px;font-size:12px;color:var(--muted)}
+    .section-title{margin:26px 0 14px;font-size:18px}
+    .card-grid{grid-template-columns:repeat(4, minmax(0,1fr))}
+    .card{padding:18px}
+    .card h3{margin:12px 0 10px}
+    .card p{margin:0 0 16px;color:var(--muted);font-size:14px}
+    .card a{display:inline-block;background:var(--blue);color:#fff}
+    .tag{display:inline-block;padding:4px 8px;border-radius:999px;background:rgba(73,166,255,0.12);color:#8ed1ff;font-size:12px}
+    .mini-list{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+    .mini-pill{padding:5px 8px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid var(--line);font-size:12px}
+    .note,.error{margin-top:18px;padding:14px 16px}
+    .note{color:#cfd9e8}
+    .error{display:none;color:#ffc5c5;background:rgba(240,97,97,0.08);border-color:rgba(240,97,97,0.28)}
+    @media (max-width:1080px){
+      .hero-top,.hero-bottom,.metrics,.card-grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow">Central Server</div>
+          <h1>SkyGuard Admin Dashboard</h1>
+          <div class="sub">Live system summary</div>
+        </div>
+        <div>
+          <div class="status-chip">
+            <span class="status-dot"></span>
+            <span id="liveStatusText">Waiting for summary...</span>
+          </div>
+          <div style="margin-top:14px" class="sub">Signed in as <strong id="adminName" style="color:var(--text)">-</strong></div>
+          <div style="margin-top:8px" class="sub">Updated <strong id="updatedAt" style="color:var(--text)">-</strong></div>
+        </div>
+      </div>
+      <div class="hero-bottom">
+        <div>
+          <div class="sub">Active users</div>
+          <div id="activeUsernames" class="mini-list"></div>
+        </div>
+        <div class="actions">
+          <button id="logoutBtn" class="danger">Logout</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="metrics">
+      <div class="metric">
+        <div class="label">Users</div>
+        <div class="value" id="userCount">-</div>
+        <div class="line">Total users</div>
+      </div>
+      <div class="metric">
+        <div class="label">Active Users</div>
+        <div class="value" id="activeUserCount">-</div>
+        <div class="line">Live users</div>
+      </div>
+      <div class="metric">
+        <div class="label">Online Cameras</div>
+        <div class="value" id="activeCameraCount">-</div>
+        <div class="line">Streaming now</div>
+      </div>
+      <div class="metric">
+        <div class="label">Detecting Cameras</div>
+        <div class="value" id="detectingCameraCount">-</div>
+        <div class="line">Detection on</div>
+      </div>
+      <div class="metric">
+        <div class="label">Stored Logs</div>
+        <div class="value" id="logCount">-</div>
+        <div class="line">Central records</div>
+      </div>
+    </section>
+
+    <h2 class="section-title">Management</h2>
+    <section class="card-grid">
+      <div class="card">
+        <span class="tag">Accounts</span>
+        <h3>User Management</h3>
+        <p>Create, edit, and remove users.</p>
+        <a href="/users.html">Open Users</a>
+      </div>
+      <div class="card">
+        <span class="tag">Evidence</span>
+        <h3>Detection Logs</h3>
+        <p>View logs and clips.</p>
+        <a href="/admin_logs.html">Open Logs</a>
+      </div>
+      <div class="card">
+        <span class="tag">Monitoring</span>
+        <h3>Admin Monitor</h3>
+        <p>View online camera feeds.</p>
+        <a href="/admin_monitor.html">Open Monitor</a>
+      </div>
+      <div class="card">
+        <span class="tag">Models</span>
+        <h3>Model Center</h3>
+        <p>Release and track models.</p>
+        <a href="/model_manager.html">Open Model Center</a>
+      </div>
+    </section>
+
+    <div class="note">Dashboard updates automatically.</div>
+    <div class="error" id="errorBox"></div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    let summaryTimer = null;
+
+    function setError(message) {
+      const errorBox = document.getElementById('errorBox');
+      if (!message) {
+        errorBox.style.display = 'none';
+        errorBox.textContent = '';
+        return;
+      }
+      errorBox.textContent = message;
+      errorBox.style.display = 'block';
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '-';
+      const dt = new Date(value);
+      if (Number.isNaN(dt.getTime())) return value;
+      return dt.toLocaleString();
+    }
+
+    function renderActiveUsers(names) {
+      const wrap = document.getElementById('activeUsernames');
+      wrap.innerHTML = '';
+      if (!names || !names.length) {
+        wrap.innerHTML = '<span class="mini-pill">None</span>';
+        return;
+      }
+      names.forEach((name) => {
+        const el = document.createElement('span');
+        el.className = 'mini-pill';
+        el.textContent = name;
+        wrap.appendChild(el);
+      });
+    }
+
+    async function ensureAdmin() {
+      const me = await apiFetch('/api/auth/me', { method: 'GET' });
+      if (!me || !me.user || me.user.role !== 'admin') {
+        window.location.replace('/login.html');
+        return null;
+      }
+      return me.user;
+    }
+
+    async function loadSummary() {
+      const payload = await apiFetch('/api/admin/summary', { method: 'GET' });
+      const summary = payload.summary || {};
+      document.getElementById('userCount').textContent = summary.total_users ?? '-';
+      document.getElementById('activeUserCount').textContent = summary.active_users ?? '-';
+      document.getElementById('activeCameraCount').textContent = summary.active_cameras ?? '-';
+      document.getElementById('detectingCameraCount').textContent = summary.detecting_cameras ?? '-';
+      document.getElementById('logCount').textContent = summary.stored_logs ?? '-';
+      document.getElementById('updatedAt').textContent = formatDateTime(summary.updated_at);
+      document.getElementById('liveStatusText').textContent = 'Summary online';
+      renderActiveUsers(summary.active_usernames || []);
+      setError('');
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        await apiFetch('/api/auth/logout', { method: 'POST' });
+      } finally {
+        window.location.replace('/login.html');
+      }
+    });
+
+    (async () => {
+      try {
+        const admin = await ensureAdmin();
+        if (!admin) return;
+        document.getElementById('adminName').textContent = admin.username || 'admin';
+        await loadSummary();
+        summaryTimer = setInterval(() => {
+          loadSummary().catch((error) => {
+            setError(error.error || error.message || 'Unable to refresh summary.');
+          });
+        }, 4000);
+      } catch (_) {
+        window.location.replace('/login.html');
+      }
+    })();
+
+    window.addEventListener('beforeunload', () => {
+      if (summaryTimer) clearInterval(summaryTimer);
+    });
+  </script>
+</body>
+</html>

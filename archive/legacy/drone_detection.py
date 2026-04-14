@@ -1,35 +1,29 @@
-import sys
 import os
-import base64
 from datetime import datetime
 
-import cv2
-import numpy as np
 from flask import Flask, request, jsonify, send_from_directory, session, redirect
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import io
+from flask import send_file
+_frame_cache = {}  # {frame_camera_id: {data, user_id, timestamp}}
+
 import database
-
-def resource_path(relative_path: str) -> str:
-    """Support PyInstaller builds."""
-    if getattr(sys, "frozen", False):
-        base_path = sys._MEIPASS  # type: ignore[attr-defined]
-    else:
-        base_path = os.path.abspath(os.path.dirname(__file__))
-    return os.path.join(base_path, relative_path)
+import detector_runtime
+import model_registry
 
 
-MODEL_PATH = os.environ.get("YOLO_MODEL", resource_path("best_v11.pt"))
-DB_PATH = os.environ.get("DETECTIONS_DB", resource_path("detections.db"))
-CROPS_DIR = os.environ.get("CROPS_DIR", resource_path("detection_crops"))
+MODEL_PATH = detector_runtime.MODEL_PATH
+DB_PATH = os.environ.get("DETECTIONS_DB", detector_runtime.resource_path("detections.db"))
+CROPS_DIR = detector_runtime.CROPS_DIR
 
 # Clips saved on server here
-CLIPS_DIR = os.environ.get("CLIPS_DIR", resource_path("detection_clips"))
+CLIPS_DIR = os.environ.get("CLIPS_DIR", detector_runtime.resource_path("detection_clips"))
 os.makedirs(CLIPS_DIR, exist_ok=True)
 
-STATIC_DIR = resource_path("static")
+STATIC_DIR = detector_runtime.resource_path("static")
 
 app = Flask(__name__, static_folder=STATIC_DIR)
 CORS(app, supports_credentials=True)
@@ -44,7 +38,6 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=86400
 )
 
-_model = None
 _db_conn = None
 
 # log in
@@ -68,12 +61,7 @@ def login_required(f):
 
 
 def load_model():
-    global _model
-    if _model is None:
-        print("Loading YOLO model from:", MODEL_PATH)
-        from ultralytics import YOLO
-        _model = YOLO(MODEL_PATH)
-    return _model
+    return detector_runtime.load_model()
 
 
 def init_db_conn():
@@ -92,105 +80,6 @@ def default_user():
         print("Created default user: admin / admin")
     else:
         print("Default user already exists.")
-
-def decode_base64_image(data_url: str):
-    if data_url.startswith("data:"):
-        _, b64 = data_url.split(",", 1)
-    else:
-        b64 = data_url
-    img_bytes = base64.b64decode(b64)
-    arr = np.frombuffer(img_bytes, np.uint8)
-    return cv2.imdecode(arr, cv2.IMREAD_COLOR)
-
-
-def results_to_list(results, original_frame, frame_no=None, timestamp=None, scale=1.0, persist=False):
-    """
-    persist=False: FAST (no DB, no crops)
-    persist=True:  save crops + DB detections
-    """
-    model = load_model()
-    detections = []
-
-    for r in results:
-        boxes = getattr(r, "boxes", None)
-        if boxes is None:
-            continue
-
-        for idx, box in enumerate(boxes):
-            try:
-                xyxy = box.xyxy[0].cpu().numpy() if hasattr(box.xyxy, "cpu") else box.xyxy[0].numpy()
-            except Exception:
-                xyxy = box.xyxy[0].numpy()
-
-            x1, y1, x2, y2 = map(float, xyxy[:4])
-
-            try:
-                confidence = float(box.conf[0]) if hasattr(box, "conf") else float(box.conf)
-            except Exception:
-                confidence = float(getattr(box, "confidence", 0.0))
-
-            try:
-                class_id = int(box.cls[0]) if hasattr(box, "cls") else int(box.cls)
-            except Exception:
-                class_id = int(getattr(box, "class_id", 0))
-
-            label = model.names[class_id] if hasattr(model, "names") and class_id in model.names else str(class_id)
-
-            # scale back to original coords
-            if scale and scale != 1.0:
-                inv = 1.0 / scale
-                x1, y1, x2, y2 = (x1 * inv, y1 * inv, x2 * inv, y2 * inv)
-
-            x1_i, y1_i, x2_i, y2_i = map(lambda v: int(round(v)), (x1, y1, x2, y2))
-            w = max(0, x2_i - x1_i)
-            h = max(0, y2_i - y1_i)
-
-            crop_path = None
-            ts = timestamp or datetime.now().isoformat(sep=" ", timespec="seconds")
-
-            if persist:
-                init_db_conn()
-                try:
-                    if original_frame is not None and w > 1 and h > 1:
-                        sy1, sy2, sx1, sx2 = y1_i, y2_i, x1_i, x2_i
-                        sy1 = max(0, sy1)
-                        sx1 = max(0, sx1)
-                        sy2 = max(sy1 + 1, sy2)
-                        sx2 = max(sx1 + 1, sx2)
-                        crop = original_frame[sy1:sy2, sx1:sx2].copy()
-                        if crop is not None and crop.size != 0:
-                            base_name = datetime.now().strftime("%Y%m%d_%H%M%S_%f") + f"_{frame_no or 0}_{idx}"
-                            crop_path = database.save_crop(crop, CROPS_DIR, base_name)
-                except Exception:
-                    crop_path = None
-
-                try:
-                    database.insert_detection(
-                        init_db_conn(),
-                        timestamp=ts,
-                        frame_no=frame_no or 0,
-                        x1=x1_i, y1=y1_i, x2=x2_i, y2=y2_i,
-                        width=w, height=h,
-                        confidence=confidence,
-                        class_id=class_id,
-                        label=label,
-                        crop_path=crop_path,
-                        model=os.path.basename(MODEL_PATH),
-                        video_path=None
-                    )
-                except Exception:
-                    app.logger.exception("DB insert failed")
-
-            detections.append({
-                "x1": x1_i, "y1": y1_i, "x2": x2_i, "y2": y2_i,
-                "width": w, "height": h,
-                "confidence": confidence,
-                "class_id": class_id,
-                "label": label,
-                "crop_path": crop_path
-            })
-
-    return detections
 
 #log in
 @app.route("/api/auth/register", methods=["POST"])
@@ -274,50 +163,25 @@ def api_detect():
     persist = bool(data.get("persist", False))
 
     try:
-        frame = decode_base64_image(frame_b64)
+        frame = detector_runtime.decode_base64_image(frame_b64)
         if frame is None:
             return jsonify({"error": "failed to decode image"}), 400
     except Exception:
         app.logger.exception("Image decode error")
         return jsonify({"error": "image decode error"}), 400
 
-    orig_h, orig_w = frame.shape[:2]
-    max_dim = int(data.get("max_dim", 640))
-    conf = float(data.get("conf", 0.4))
-
-    scale = 1.0
-    if max(orig_h, orig_w) > max_dim:
-        scale = max_dim / float(max(orig_h, orig_w))
-        proc_w = int(round(orig_w * scale))
-        proc_h = int(round(orig_h * scale))
-        frame_proc = cv2.resize(frame, (proc_w, proc_h), interpolation=cv2.INTER_AREA)
-    else:
-        frame_proc = frame
-        proc_h, proc_w = orig_h, orig_w
-
-    import time
-    t0 = time.time()
-    model = load_model()
-    results = model.predict(frame_proc, conf=conf, verbose=False)
-    t1 = time.time()
-
-    detections = results_to_list(
-        results,
-        original_frame=frame,
+    result = detector_runtime.detect_frame(
+        frame,
         frame_no=frame_no,
         timestamp=timestamp,
-        scale=scale,
         persist=persist
+        ,
+        conf=float(data.get("conf", 0.4)),
+        max_dim=int(data.get("max_dim", 640)),
+        db_conn=init_db_conn() if persist else None,
     )
 
-    return jsonify({
-        "detected": len(detections) > 0,
-        "detections": detections,
-        "processing_time": round(t1 - t0, 3),
-        "orig_size": {"width": orig_w, "height": orig_h},
-        "processed_size": {"width": proc_w, "height": proc_h},
-        "scale": scale
-    })
+    return jsonify(result)
 
 
 # -------------------------
@@ -599,6 +463,173 @@ def api_users_delete():
 @app.route("/users.html")
 def serve_users():
     return send_from_directory(STATIC_DIR, "users.html")
+
+# Camera Management APIs
+
+@app.route("/api/camera/register", methods=["POST"])
+@login_required
+def api_camera_register():
+    """
+    POST JSON: {camera_name, camera_id}
+    """
+    conn = init_db_conn()
+    user_id = session.get("user_id")
+    data = request.get_json(force=True, silent=True) or {}
+    
+    camera_name = (data.get("camera_name") or "").strip()
+    camera_id = (data.get("camera_id") or "").strip()
+    
+    if not camera_name or not camera_id:
+        return jsonify({"error": "camera_name and camera_id required"}), 400
+    
+    try:
+        cam_db_id = database.register_camera(conn, user_id, camera_name, camera_id)
+        return jsonify({"ok": True, "camera_db_id": cam_db_id})
+    except Exception as e:
+        app.logger.exception("camera register failed")
+        return jsonify({"error": "registration failed"}), 500
+
+
+@app.route("/api/camera/list", methods=["GET"])
+@login_required
+def api_camera_list():
+    """
+    GET -> {cameras: [{id, camera_name, camera_id, is_active, ...}]}
+    """
+    conn = init_db_conn()
+    user_id = session.get("user_id")
+    try:
+        cameras = database.get_user_cameras(conn, user_id)
+        return jsonify({"ok": True, "cameras": cameras})
+    except Exception as e:
+        app.logger.exception("camera list failed")
+        return jsonify({"error": "list failed"}), 500
+
+
+@app.route("/api/admin/cameras", methods=["GET"])
+@admin_required
+def api_admin_cameras_list():
+    """
+    GET -> {cameras: [{camera_id, user_id, camera_name, username, ...}]}
+    """
+    conn = init_db_conn()
+    try:
+        cameras = database.get_all_active_cameras(conn)
+        return jsonify({"ok": True, "cameras": cameras})
+    except Exception as e:
+        app.logger.exception("admin cameras list failed")
+        return jsonify({"error": "list failed"}), 500
+
+
+@app.route("/api/camera/stream", methods=["POST"])
+@login_required
+def api_camera_stream():
+    """
+    POST multipart/form-data:
+      - file: frame image (jpeg/png)
+      - camera_id: camera identifier
+      - frame_no: frame number
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "missing file"}), 400
+    
+    f = request.files["file"]
+    if not f or f.filename == "":
+        return jsonify({"error": "empty file"}), 400
+    
+    camera_id = request.form.get("camera_id", "")
+    user_id = session.get("user_id")
+    
+    if not camera_id:
+        return jsonify({"error": "camera_id required"}), 400
+    
+    try:
+        frame_data = f.read()
+        # Store frame in memory/cache for admin to retrieve
+        # You can use Redis or in-memory dict
+        frame_key = f"frame_{camera_id}"
+        # For now, use a simple in-memory approach (NOT production-ready)
+        # In production, use Redis for better performance
+        _frame_cache[frame_key] = {
+            "data": frame_data,
+            "user_id": user_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        return jsonify({"ok": True})
+    except Exception as e:
+        app.logger.exception("camera stream upload failed")
+        return jsonify({"error": "upload failed"}), 500
+
+
+@app.route("/api/admin/camera/frame", methods=["GET"])
+@admin_required
+def api_admin_camera_frame():
+    """
+    GET ?camera_id=xxx -> returns image data
+    """
+    camera_id = request.args.get("camera_id", "")
+    if not camera_id:
+        return jsonify({"error": "camera_id required"}), 400
+    
+    frame_key = f"frame_{camera_id}"
+    if frame_key not in _frame_cache:
+        return jsonify({"error": "no frame available"}), 404
+    
+    frame_info = _frame_cache[frame_key]
+    return send_file(
+        io.BytesIO(frame_info["data"]),
+        mimetype="image/jpeg"
+    )
+
+@app.route("/admin_monitor.html")
+def serve_admin_monitor():
+    return send_from_directory(STATIC_DIR, "admin_monitor.html")
+
+
+@app.route("/model_manager.html")
+def serve_model_manager():
+    return send_from_directory(STATIC_DIR, "model_manager.html")
+
+
+@app.route("/api/models/current", methods=["GET"])
+@login_required
+def api_models_current():
+    meta = model_registry.get_current_model_info()
+    if not meta:
+        return jsonify({"ok": False, "error": "no released model"}), 404
+    return jsonify({"ok": True, "model": meta})
+
+
+@app.route("/api/models/download/current", methods=["GET"])
+@login_required
+def api_models_download_current():
+    path = model_registry.get_current_model_path()
+    if not path:
+        return jsonify({"ok": False, "error": "no released model"}), 404
+    return send_file(path, as_attachment=True)
+
+
+@app.route("/api/models/release", methods=["POST"])
+@admin_required
+def api_models_release():
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "missing file"}), 400
+
+    file_storage = request.files["file"]
+    if not file_storage or not file_storage.filename:
+        return jsonify({"ok": False, "error": "empty file"}), 400
+
+    user = current_user() or {}
+    released_by = user.get("username", "admin")
+
+    try:
+        meta = model_registry.release_uploaded_model(file_storage, released_by=released_by)
+        return jsonify({"ok": True, "model": meta})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:
+        app.logger.exception("model release failed")
+        return jsonify({"ok": False, "error": "release failed"}), 500
 
 
 if __name__ == "__main__":

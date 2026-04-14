@@ -5,14 +5,10 @@ import sys
 import os
 
 import webview
-import drone_detection
 
-def find_free_port():
-    s = socket.socket()
-    s.bind(('', 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+import central_server
+
+DEFAULT_CENTRAL_PORT = int(os.environ.get("CENTRAL_SERVER_PORT", "5000"))
 
 def wait_for_port(host, port, timeout=5.0):
     """Wait until the server is accepting connections, return True if ok."""
@@ -27,16 +23,11 @@ def wait_for_port(host, port, timeout=5.0):
 
 def run_server(port):
     try:
-        drone_detection.load_model()
+        central_server.init_server_state()
     except Exception as e:
-        print("Warning: load_model failed:", e)
-    try:
-        drone_detection.init_db_conn()
-    except Exception as e:
-        print("Warning: init_db_conn failed:", e)
+        print("Warning: init_server_state failed:", e)
 
-
-    drone_detection.app.run(host='127.0.0.1', port=port, debug=False, use_reloader=False)
+    central_server.app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 def read_cookies(window):
     try:
@@ -61,7 +52,7 @@ class Api:
             return False
 
 if __name__ == "__main__":
-    port = find_free_port()
+    port = DEFAULT_CENTRAL_PORT
     t = threading.Thread(target=run_server, args=(port,), daemon=True)
     t.start()
 
@@ -73,4 +64,4 @@ if __name__ == "__main__":
     url = f'http://127.0.0.1:{port}/login.html'
 
     window = webview.create_window('Drone Detector', url, js_api=Api())
-    webview.start(read_cookies, window, private_mode=False, http_server=True, http_port=port)
+    webview.start(read_cookies, window, private_mode=False, http_server=False)

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Detection Logs - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #f5f7fa; margin: 0; padding: 18px; color: #111827; }
+    .card { background: #fff; padding: 18px; border-radius: 12px; max-width: 1100px; margin: 12px auto; box-shadow: 0 10px 28px rgba(0,0,0,0.06); }
+    .top { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+    button, a.linkbtn { padding: 9px 12px; border: 0; border-radius: 8px; cursor: pointer; background: #0b5cff; color: #fff; text-decoration: none; font-weight: 700; }
+    button.ghost { background: #e5e7eb; color: #111827; }
+    button.danger { background: #ef4444; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    th { color: #64748b; font-size: 13px; }
+    input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+    .muted { color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="top">
+      <div>
+        <h2 style="margin:0 0 6px;">Detection Logs</h2>
+        <div class="muted">Review uploaded logs from detector nodes and manage saved clip records.</div>
+      </div>
+      <div class="btns">
+        <button id="reloadBtn" class="ghost">Reload</button>
+        <button id="backBtn" class="ghost">Back to Dashboard</button>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:60px;">ID</th>
+          <th style="width:180px;">Time</th>
+          <th>Event</th>
+          <th style="width:130px;">Source</th>
+          <th style="width:280px;">Clip</th>
+          <th style="width:220px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="logRows"></tbody>
+    </table>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const logRows = document.getElementById('logRows');
+
+    function extractFilename(clipText) {
+      if (!clipText) return null;
+      const text = String(clipText);
+      const idx = text.indexOf('Saved:');
+      if (idx === -1) return null;
+      return text.slice(idx + 6).trim();
+    }
+
+    async function ensureAdmin() {
+      const me = await apiFetch('/api/auth/me', { method: 'GET' });
+      if (!me || !me.user || me.user.role !== 'admin') {
+        window.location.replace('/login.html');
+        return false;
+      }
+      return true;
+    }
+
+    async function loadLogs() {
+      const data = await apiFetch('/api/logs', { method: 'GET' });
+      logRows.innerHTML = '';
+      for (const log of (data || [])) {
+        const tr = document.createElement('tr');
+        const clipFile = extractFilename(log.clip);
+        tr.innerHTML = `
+          <td>${log.id ?? '-'}</td>
+          <td><input class="log-time" value="${log.time ?? ''}" /></td>
+          <td><input class="log-event" value="${log.event ?? ''}" /></td>
+          <td><input class="log-source" value="${log.source ?? ''}" /></td>
+          <td><input class="log-clip" value="${log.clip ?? ''}" /></td>
+          <td class="btns"></td>
+        `;
+
+        const actionCell = tr.querySelector('.btns');
+        const saveBtn = document.createElement('button');
+        saveBtn.textContent = 'Save';
+        saveBtn.addEventListener('click', async () => {
+          await apiFetch('/api/logs/update', {
+            method: 'POST',
+            body: {
+              id: log.id,
+              time: tr.querySelector('.log-time').value.trim(),
+              event: tr.querySelector('.log-event').value.trim(),
+              source: tr.querySelector('.log-source').value.trim(),
+              clip: tr.querySelector('.log-clip').value.trim()
+            }
+          });
+          await loadLogs();
+        });
+        actionCell.appendChild(saveBtn);
+
+        if (clipFile) {
+          const dl = document.createElement('a');
+          dl.className = 'linkbtn';
+          dl.href = '/api/clip/download?file=' + encodeURIComponent(clipFile);
+          dl.textContent = 'Download';
+          dl.setAttribute('download', '');
+          actionCell.appendChild(dl);
+        }
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'danger';
+        delBtn.textContent = 'Delete';
+        delBtn.addEventListener('click', async () => {
+          if (!confirm('Delete this log?')) return;
+          await apiFetch('/api/logs/delete', { method: 'POST', body: { id: log.id } });
+          await loadLogs();
+        });
+        actionCell.appendChild(delBtn);
+
+        logRows.appendChild(tr);
+      }
+    }
+
+    document.getElementById('reloadBtn').addEventListener('click', loadLogs);
+    document.getElementById('backBtn').addEventListener('click', () => {
+      window.location.replace('/index.html');
+    });
+
+    (async () => {
+      try {
+        const ok = await ensureAdmin();
+        if (ok) await loadLogs();
+      } catch (_) {
+        window.location.replace('/login.html');
+      }
+    })();
+  </script>
+</body>
+</html>

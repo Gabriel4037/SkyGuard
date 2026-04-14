@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SkyGuard Detector Client Login</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; display:flex; align-items:center; justify-content:center; height:100vh; }
+    .card { background:#fff; padding:24px; width:400px; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.08); }
+    h2 { margin:0 0 12px 0; font-size:20px; }
+    label { display:block; font-size:13px; margin-top:8px; }
+    input { width:100%; padding:10px; margin-top:6px; box-sizing:border-box; }
+    .row { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; }
+    button { padding:8px 12px; border:0; background:#0078D7; color:#fff; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#6c757d; }
+    .msg { color:#c00; margin-top:10px; min-height:18px; }
+    .status { margin-top:10px; font-size:12px; color:#495057; min-height:18px; }
+    .status.ok { color:#198754; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:#0b5cff; margin-bottom:8px;">Detector Client</div>
+    <h2>Sign in</h2>
+    <label>Server IP</label>
+    <input id="serverIp" type="text" placeholder="192.168.1.50" />
+    <div class="row" style="margin-top:10px; justify-content:flex-start;">
+      <button id="connectBtn">Connect</button>
+    </div>
+    <div class="status" id="connectMsg"></div>
+    <label>Username</label>
+    <input id="loginUsername" type="text" autocomplete="username" />
+    <label>Password</label>
+    <input id="loginPassword" type="password" autocomplete="current-password" />
+    <div class="row">
+      <button id="gotoRegister" class="secondary">Register</button>
+      <button id="loginSubmit">Login</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+    <div style="margin-top:10px; font-size:12px; color:#6c757d; line-height:1.45;">This login is for the detector client app. Central admin uses a separate login screen.</div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const { authLogin, refreshCurrentUser, getClientConnection, setClientConnection, testClientConnection } = window.authApi || {};
+    let isConnected = false;
+
+    function safeReplace(url) {
+      if (window.__auth_redirecting) return;
+      window.__auth_redirecting = true;
+      setTimeout(() => {
+        window.location.replace(url);
+      }, 120);
+    }
+
+    async function waitForSessionReady(retries = 10, delayMs = 120) {
+      for (let i = 0; i < retries; i += 1) {
+        const current = await refreshCurrentUser();
+        if (current) return current;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      return null;
+    }
+
+    function setConnectStatus(text, ok = false) {
+      const el = document.getElementById('connectMsg');
+      el.textContent = text || '';
+      el.className = ok ? 'status ok' : 'status';
+      isConnected = !!ok;
+    }
+
+    async function loadConnection() {
+      try {
+        const payload = await getClientConnection();
+        if (payload && payload.server_ip) {
+          document.getElementById('serverIp').value = payload.server_ip;
+        }
+      } catch (_) {}
+    }
+
+    async function connectToServer() {
+      const serverIp = document.getElementById('serverIp').value.trim();
+      if (!serverIp) {
+        setConnectStatus('Server IP required');
+        return false;
+      }
+
+      try {
+        const test = await testClientConnection({ server_ip: serverIp });
+        if (!test.ok) throw test;
+        const saved = await setClientConnection({ server_ip: serverIp });
+        document.getElementById('serverIp').value = saved.server_ip || serverIp;
+        localStorage.setItem('client_server_ip', saved.server_ip || serverIp);
+        setConnectStatus(`Connected to ${saved.server_url}`, true);
+        return true;
+      } catch (err) {
+        setConnectStatus(err.error || err.message || 'Cannot reach server');
+        return false;
+      }
+    }
+
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+      await connectToServer();
+    });
+
+    document.getElementById('loginSubmit').addEventListener('click', async () => {
+      const user = document.getElementById('loginUsername').value.trim();
+      const pwd = document.getElementById('loginPassword').value;
+      const msgEl = document.getElementById('loginMsg');
+      msgEl.textContent = '';
+      if (!isConnected) {
+        const ok = await connectToServer();
+        if (!ok) {
+          msgEl.textContent = 'Connect to the server first';
+          return;
+        }
+      }
+      if (!user || !pwd) {
+        msgEl.textContent = 'Username and password required';
+        return;
+      }
+
+      try {
+        await authLogin({ username: user, password: pwd });
+        const currentUser = await waitForSessionReady();
+        if (!currentUser) throw { error: 'Session did not become ready' };
+        safeReplace('/index.html');
+      } catch (err) {
+        msgEl.textContent = err.error || err.message || 'Login failed';
+        window.__auth_redirecting = false;
+      }
+    });
+
+    document.getElementById('gotoRegister').addEventListener('click', () => {
+      safeReplace('/register.html');
+    });
+
+    (async () => {
+      try {
+        const savedIp = localStorage.getItem('client_server_ip');
+        if (savedIp) {
+          document.getElementById('serverIp').value = savedIp;
+        }
+        await loadConnection();
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const user = await refreshCurrentUser();
+        if (user) safeReplace('/index.html');
+      } catch (_) {
+        window.__auth_redirecting = false;
+      }
+    })();
+  </script>
+</body>
+</html>

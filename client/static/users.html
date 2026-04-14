@@ -62,7 +62,7 @@
         const res = await apiFetch('/api/users', { method: 'GET' });
         const tbody = document.querySelector('#usersTable tbody');
         tbody.innerHTML = '';
-        if (!res.ok) {
+        if (!res || !Array.isArray(res.users)) {
           tbody.innerHTML = '<tr><td colspan="6">Failed to load</td></tr>';
           return;
         }
@@ -164,11 +164,10 @@
       try {
         const me = await apiFetch('/api/auth/me', { method: 'GET' });
         if (!me || !me.user || me.user.role !== 'admin') {
-          alert('Admin permissions required');
           window.location.replace('/login.html');
           return;
         }
-        loadUsers();
+        await loadUsers();
       } catch (e) {
         window.location.replace('/login.html');
       }

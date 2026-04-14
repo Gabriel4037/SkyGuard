@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Model Center - Drone Detector</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; padding:18px; color:#111827; }
+    .card { background:#fff; padding:18px; border-radius:10px; max-width:960px; margin:12px auto; box-shadow:0 10px 28px rgba(0,0,0,0.08); }
+    h2, h3 { margin:0 0 10px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .row > * { flex:1; min-width:180px; }
+    button { padding:10px 12px; border:0; background:#0b5cff; color:#fff; border-radius:8px; cursor:pointer; }
+    button.ghost { background:#e5e7eb; color:#111827; }
+    .muted { color:#6b7280; font-size:13px; }
+    .good { color:#166534; }
+    .bad { color:#b91c1c; }
+    .pill { display:inline-block; padding:4px 8px; border-radius:999px; background:#e0f2fe; color:#075985; font-size:12px; }
+    .meta { line-height:1.7; font-size:14px; }
+    input[type=file] { width:100%; }
+    .hint { color:#4b5563; font-size:13px; margin-top:10px; line-height:1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="row">
+      <div>
+        <h2>Model Center</h2>
+        <div class="muted">Release a `.pt` model from the central server so detector nodes can download it later.</div>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button id="backBtn" class="ghost">Back to Dashboard</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Current Released Model</h3>
+    <div id="currentMeta" class="meta muted">Loading current model info...</div>
+  </div>
+
+  <div class="card">
+    <h3>Release New Model</h3>
+    <div class="row" style="margin-top:10px;">
+      <div>
+        <input id="modelFile" type="file" accept=".pt" />
+      </div>
+      <div style="flex:0 0 auto;">
+        <button id="releaseBtn">Release Model</button>
+      </div>
+    </div>
+    <div id="releaseMsg" class="muted" style="margin-top:10px;"></div>
+    <div class="hint">Recommended flow: release the approved `.pt` file here on the central server, then use `Update Model` on detector nodes when you are ready.</div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const currentMeta = document.getElementById('currentMeta');
+    const releaseMsg = document.getElementById('releaseMsg');
+
+    document.getElementById('backBtn').addEventListener('click', () => {
+      window.location.replace('/index.html');
+    });
+
+    async function ensureAdmin() {
+      const me = await apiFetch('/api/auth/me', { method: 'GET' });
+      if (!me || !me.user || me.user.role !== 'admin') {
+        window.location.replace('/login.html');
+        return false;
+      }
+      return true;
+    }
+
+    async function loadCurrentModel() {
+      try {
+        const res = await apiFetch('/api/models/current', { method: 'GET' });
+        const model = res.model;
+        currentMeta.innerHTML = `
+          <div><span class="pill">Released</span></div>
+          <div><strong>Version:</strong> ${model.version || '-'}</div>
+          <div><strong>Filename:</strong> ${model.filename || '-'}</div>
+          <div><strong>Released By:</strong> ${model.released_by || '-'}</div>
+          <div><strong>Released At:</strong> ${model.released_at || '-'}</div>
+          <div><strong>Size:</strong> ${model.size_bytes || 0} bytes</div>
+        `;
+        currentMeta.className = 'meta';
+      } catch (_) {
+        currentMeta.textContent = 'No released model yet, or this page is not running on the central server.';
+        currentMeta.className = 'meta bad';
+      }
+    }
+
+    document.getElementById('releaseBtn').addEventListener('click', async () => {
+      const fileInput = document.getElementById('modelFile');
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        releaseMsg.textContent = 'Choose a .pt file first.';
+        releaseMsg.className = 'bad';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/models/release', {
+          method: 'POST',
+          credentials: 'include',
+          body: formData
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'Release failed');
+        releaseMsg.textContent = `Released ${data.model.filename}`;
+        releaseMsg.className = 'good';
+        await loadCurrentModel();
+      } catch (error) {
+        releaseMsg.textContent = error.message || 'Release failed';
+        releaseMsg.className = 'bad';
+      }
+    });
+
+    (async () => {
+      try {
+        const ok = await ensureAdmin();
+        if (ok) await loadCurrentModel();
+      } catch (_) {
+        window.location.replace('/login.html');
+      }
+    })();
+  </script>
+</body>
+</html>

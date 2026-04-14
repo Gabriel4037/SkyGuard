@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Drone Detector</title>
+  <style>
+    :root{
+      --bg:#0b0f17;
+      --panel: rgba(17,24,39,0.92);
+      --panel2: rgba(15,23,42,0.92);
+      --text:#e5e7eb;
+      --muted:#94a3b8;
+      --accent:#22c55e;
+      --danger:#ef4444;
+      --warn:#f59e0b;
+      --line: rgba(148,163,184,0.18);
+      --shadow: 0 10px 30px rgba(0,0,0,0.35);
+      --r: 14px;
+    }
+    *{ box-sizing:border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    body{
+      margin:0;
+      background:
+        radial-gradient(1200px 800px at 20% -10%, rgba(34,197,94,0.12), transparent 60%),
+        radial-gradient(900px 700px at 110% 10%, rgba(59,130,246,0.10), transparent 55%),
+        var(--bg);
+      color:var(--text);
+    }
+
+    header{
+      position:sticky; top:0;
+      backdrop-filter: blur(10px);
+      background: rgba(11,15,23,0.72);
+      border-bottom:1px solid var(--line);
+      z-index:50;
+    }
+    .wrap{ max-width:1300px; margin:0 auto; padding:18px 16px; }
+    .top{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .brand{ display:flex; align-items:center; gap:10px; }
+    .dot{ width:10px; height:10px; border-radius:999px; background:var(--accent); box-shadow:0 0 0 6px rgba(34,197,94,0.15); }
+    h1{ margin:0; font-size:18px; letter-spacing:0.3px; }
+    .sub{ margin:2px 0 0; font-size:12px; color:var(--muted); }
+
+    .pill{
+      font-size:12px; color:var(--muted);
+      border:1px solid var(--line);
+      padding:6px 10px; border-radius:999px;
+      background: rgba(2,6,23,0.35);
+      display:flex; align-items:center; gap:8px;
+      white-space:nowrap;
+    }
+    .btns{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    button{
+      background: rgba(2,6,23,0.5);
+      border:1px solid var(--line);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      transition: transform .06s ease, border-color .15s ease, background .15s ease;
+      font-weight:650;
+      letter-spacing:.2px;
+    }
+    button:hover{ border-color: rgba(148,163,184,0.35); }
+    button:active{ transform: translateY(1px); }
+    .primary{ background: rgba(34,197,94,0.14); border-color: rgba(34,197,94,0.35); }
+    .danger{ background: rgba(239,68,68,0.14); border-color: rgba(239,68,68,0.35); }
+    .ghost{ background: rgba(2,6,23,0.25); }
+
+    .container{ max-width:1300px; margin:0 auto; padding:16px; display:grid; gap:14px; }
+    .card{
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      border:1px solid var(--line);
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .card-h{
+      padding:12px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+      flex-wrap:wrap;
+    }
+    .card-h b{ font-size:13px; letter-spacing:.2px; }
+    .card-b{ padding:14px; }
+
+    .viewer{
+      position:relative;
+      width:100%;
+      aspect-ratio: 16/9;
+      background: rgba(2,6,23,0.5);
+      border:1px solid var(--line);
+      border-radius:14px;
+      overflow:hidden;
+    }
+    video{ position:relative; z-index:1; width:100%; height:100%; object-fit:contain; display:block; background: rgba(2,6,23,0.35); transform:translateZ(0); }
+    canvas.overlay{ position:absolute; inset:0; z-index:2; pointer-events:none; transform:translateZ(0); }
+    canvas.record{ display:none; }
+
+    .grid-cams{
+      display:grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap:12px;
+    }
+    @media (max-width:1100px){
+      .grid-cams{ grid-template-columns:1fr; }
+    }
+
+    .row{ display:flex; gap:10px; flex-wrap:wrap; }
+    .row > *{ flex:1; min-width:160px; }
+
+    label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+    input[type="number"], input[type="file"], select, input[type="color"], input[type="password"], input[type="text"], textarea{
+      width:100%;
+      background: rgba(2,6,23,0.6);
+      border:1px solid var(--line);
+      border-radius:10px;
+      padding:10px 10px;
+      color:var(--text);
+      outline:none;
+    }
+    input::placeholder, textarea::placeholder{ color: var(--muted); }
+    input[readonly], textarea[readonly]{
+      background: rgba(15,23,42,0.88) !important;
+      color: var(--text);
+      border-color: rgba(148,163,184,0.22);
+      box-shadow: none;
+      opacity: 1;
+    }
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus,
+    textarea:-webkit-autofill,
+    select:-webkit-autofill{
+      -webkit-text-fill-color: var(--text);
+      -webkit-box-shadow: 0 0 0 1000px rgba(2,6,23,0.85) inset;
+      transition: background-color 9999s ease-in-out 0s;
+    }
+    input[type="checkbox"]{ transform: translateY(1px); }
+
+    table{ width:100%; border-collapse:collapse; font-size:12px; }
+    th, td{
+      text-align:left;
+      padding:10px 8px;
+      border-bottom:1px solid rgba(148,163,184,0.14);
+      vertical-align:top;
+    }
+    th{ color:var(--muted); font-weight:750; letter-spacing:.2px; }
+
+    .page{ display:none; }
+    .page.active{ display:block; }
+
+    .hint{ font-size:12px; color:var(--muted); line-height:1.35; }
+    .divider{ height:12px; }
+
+    /* Modal */
+    .backdrop{
+      position:fixed; inset:0;
+      background: rgba(0,0,0,0.55);
+      display:none;
+      align-items:center; justify-content:center;
+      z-index:200;
+      padding:16px;
+    }
+    .backdrop.show{ display:flex; }
+    .modal{
+      width:min(860px, 100%);
+      background: linear-gradient(180deg, rgba(17,24,39,0.97), rgba(15,23,42,0.97));
+      border:1px solid rgba(148,163,184,0.22);
+      border-radius:18px;
+      box-shadow:0 20px 60px rgba(0,0,0,0.45);
+      overflow:hidden;
+    }
+    .modal-h{
+      padding:12px 14px;
+      border-bottom:1px solid rgba(148,163,184,0.16);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    .modal-b{ padding:14px; }
+    .modal-h b{ font-size:13px; letter-spacing:.2px; }
+
+    /* Toast alert */
+    .toast-wrap{
+      position:fixed;
+      right:16px; bottom:16px;
+      display:flex; flex-direction:column;
+      gap:10px;
+      z-index:300;
+      pointer-events:none;
+    }
+    .toast{
+      pointer-events:none;
+      min-width: 260px;
+      max-width: 420px;
+      padding: 12px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(245,158,11,0.35);
+      background: rgba(2,6,23,0.88);
+      box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+      display:flex; align-items:flex-start; gap:10px;
+      animation: pop .18s ease-out;
+    }
+    .toast .badge{
+      width:10px; height:10px; border-radius:99px;
+      background: var(--warn);
+      box-shadow: 0 0 0 6px rgba(245,158,11,0.15);
+      margin-top:4px;
+    }
+    .toast .t-title{ font-weight:800; font-size:12px; letter-spacing:.2px; }
+    .toast .t-body{ font-size:12px; color: var(--muted); margin-top:2px; line-height:1.35; }
+    @keyframes pop{ from{ transform: translateY(8px); opacity:.0; } to{ transform: translateY(0); opacity:1; } }
+
+    /* Simple admin tag */
+    .admin-pill{
+      border:1px solid rgba(59,130,246,0.35);
+      background: rgba(59,130,246,0.12);
+      color: rgba(191,219,254,0.95);
+    }
+
+    .linkbtn{
+      display:inline-flex; align-items:center; gap:8px;
+      border:1px solid rgba(148,163,184,0.22);
+      padding:8px 10px;
+      border-radius:10px;
+      background: rgba(2,6,23,0.35);
+      color: var(--text);
+      text-decoration:none;
+      font-weight:700;
+    }
+    .linkbtn:hover{ border-color: rgba(148,163,184,0.35); }
+
+  </style>
+</head>
+
+<body>
+  <div id="appHeader" style="display:flex; align-items:center; justify-content:space-between; padding:12px 18px; background:#0b5cff; color:#fff;">
+  <div style="font-weight:700;">Drone Detector</div>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <span id="headerUser" style="font-weight:600;"></span>
+    <button id="headerLogoutBtn" style="display:none; padding:6px 10px; border-radius:6px; border:0; background:#fff; color:#0b5cff; cursor:pointer;">Logout</button>
+  </div>
+</div>
+
+<script src="/static/auth.js"></script>
+<script src="/static/header-auth.js"></script>
+<header>
+  <div class="wrap top">
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        <h1 id="appTitle">SkyGuard</h1>
+        <div class="sub" id="appSub">A Vision-Based Drone Detection System</div>
+      </div>
+    </div>
+    
+
+    <div class="btns">
+      <div class="pill">
+        <span data-i18n="status">Status</span>:
+        <span class="muted" id="statusText">idle</span>
+      </div>
+      <button class="ghost" id="btnDashboard" data-i18n="dashboard">Dashboard</button>
+      <button class="ghost" id="btnLive" data-i18n="live">Live</button>
+      <button class="ghost" id="btnFile" data-i18n="videoFile">Video</button>
+      <button class="ghost" id="btnLogs" data-i18n="logs">Logs</button>
+      <button class="ghost" id="btnSettings" data-i18n="settings">Settings</button>
+    </div>
+  </div>
+</header>
+
+<!-- Toast Alerts -->
+<div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="true"></div>
+<!-- DASHBOARD (Main Menu with previews + camera control + logs) -->
+<div id="pageDashboard" class="page active">
+  <div class="container">
+
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="mainMenu">Main Menu</b>
+        <div class="btns">
+          <button class="primary" id="dashAddCam" data-i18n="addCamera">Add Camera</button>
+          <button class="ghost" id="dashRefreshDevices" data-i18n="refreshDevices">Refresh Devices</button>
+
+          <button class="primary" id="dashStartAll" data-i18n="startAll">Start All</button>
+          <button class="danger" id="dashStopAll" data-i18n="stopAll">Stop All</button>
+
+          <button class="primary" id="dashDetectAll" data-i18n="detectOnAll">Detect On (All)</button>
+          <button class="danger" id="dashDetectOffAll" data-i18n="detectOffAll">Detect Off (All)</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="hint" data-i18n="dashHint">
+          Live previews of attached cameras are shown below. Start cameras first, then enable detection.
+        </div>
+        <div class="divider"></div>
+        <div id="dashCamGrid" class="grid-cams"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="recentLogs">Recent Logs</b>
+        <div class="btns" style="justify-content:flex-end;">
+          <div class="pill">
+            <span data-i18n="lastDetect">Last detect</span>:
+            <span id="lastMs" class="muted">-</span> ms
+          </div>
+          <button id="btnClearLogs" data-i18n="clearLogs">Clear</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div style="max-height: 420px; overflow:auto; border:1px solid rgba(148,163,184,0.14); border-radius: 12px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:190px;" data-i18n="time">Time</th>
+                <th data-i18n="event">Event</th>
+                <th style="width:90px;" data-i18n="source">Source</th>
+                <th style="width:280px;" data-i18n="clipSaved">Clip Saved</th>
+              </tr>
+            </thead>
+            <tbody id="logBody"></tbody>
+          </table>
+        </div>
+        <div class="divider"></div>
+        <div class="hint">
+          <span data-i18n="logsPageHint">Open the Logs page to manage stored logs and download specific footage.</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LIVE PAGE (optional dedicated view) -->
+<div id="pageLive" class="page">
+  <div class="container">
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="liveMonitor">Live Monitor</b>
+        <div class="btns">
+          <button class="primary" id="liveAddCam" data-i18n="addCamera">Add Camera</button>
+          <button class="ghost" id="liveRefreshDevices" data-i18n="refreshDevices">Refresh Devices</button>
+
+          <button class="primary" id="liveStartAll" data-i18n="startAll">Start All</button>
+          <button class="danger" id="liveStopAll" data-i18n="stopAll">Stop All</button>
+
+          <button class="primary" id="liveDetectAll" data-i18n="detectOnAll">Detect On (All)</button>
+          <button class="danger" id="liveDetectOffAll" data-i18n="detectOffAll">Detect Off (All)</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="hint" data-i18n="liveHint">
+          Same camera tiles as Dashboard. If you prefer, just use Dashboard.
+        </div>
+        <div class="divider"></div>
+        <div id="liveCamGrid" class="grid-cams"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FILE PAGE -->
+<div id="pageFile" class="page">
+  <div class="container">
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="videoFileDetection">Video File Detection</b>
+        <div class="btns">
+          <button class="danger" id="btnStopFileDetect" data-i18n="stopDetect">Stop Detect</button>
+          <button class="primary" id="btnStartFileDetect" data-i18n="startDetect">Start Detect</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="row">
+          <div>
+            <label data-i18n="loadVideo">Load Video File</label>
+            <input id="fileInput" type="file" accept="video/*" />
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="viewer">
+          <video id="fileVideo" playsinline muted controls></video>
+          <canvas class="overlay" id="fileOverlay"></canvas>
+          <canvas class="record" id="fileRecord"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LOGS PAGE (Stored logs + admin edit/delete + download clip per log) -->
+<div id="pageLogs" class="page">
+  <div class="container">
+    <div class="card">
+      <div class="card-h">
+        <b data-i18n="storedLogs">Stored Logs</b>
+        <div class="btns">
+          <button class="ghost" id="btnReloadStoredLogs" data-i18n="reload">Reload</button>
+        </div>
+      </div>
+      <div class="card-b">
+        <div class="hint" data-i18n="storedLogsHint">
+          This page loads logs saved on this detector node. Use the central server admin app to manage uploaded logs and users.
+        </div>
+        <div class="divider"></div>
+        <div style="overflow:auto; border:1px solid rgba(148,163,184,0.14); border-radius: 12px;">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:120px;">ID</th>
+                <th style="width:190px;" data-i18n="time">Time</th>
+                <th data-i18n="event">Event</th>
+                <th style="width:110px;" data-i18n="source">Source</th>
+                <th style="width:280px;" data-i18n="clip">Clip</th>
+              </tr>
+            </thead>
+            <tbody id="storedLogBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="backdrop" id="settingsBackdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="modal-h">
+      <b data-i18n="settings">Settings</b>
+      <div class="btns">
+        <button class="ghost" id="btnCloseSettings" data-i18n="close">Close</button>
+      </div>
+    </div>
+    <div class="modal-b">
+      <div class="row">
+        <div>
+          <label data-i18n="detectionFps">Detection Rate (FPS)</label>
+          <input id="fpsInput" type="number" min="1" max="15" value="6" />
+        </div>
+        <div>
+          <label data-i18n="confidence">Detection Confidence</label>
+          <input id="confInput" type="number" min="0.05" max="0.95" step="0.05" value="0.40" />
+        </div>
+        <div>
+          <label data-i18n="maxDim">Detection Image Size</label>
+          <input id="maxDimInput" type="number" min="320" max="1280" step="64" value="640" />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <div>
+          <label data-i18n="modelCheckInterval">Model Check Interval (seconds)</label>
+          <input id="modelCheckIntervalInput" type="number" min="10" max="3600" value="30" />
+        </div>
+        <div>
+          <label data-i18n="currentModel">Current Model</label>
+          <input id="currentModelVersion" type="text" value="-" readonly />
+        </div>
+        <div>
+          <label data-i18n="pendingModel">Pending Model</label>
+          <input id="pendingModelVersion" type="text" value="-" readonly />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <div>
+          <label data-i18n="lastModelCheck">Last Model Check</label>
+          <input id="lastModelCheckAt" type="text" value="-" readonly />
+        </div>
+        <div>
+          <label data-i18n="lastSync">Last Sync</label>
+          <input id="lastSyncAt" type="text" value="-" readonly />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label>
+            <input id="autoClip" type="checkbox" checked />
+            <span data-i18n="autoSaveClip">Save a clip automatically when a drone is detected</span>
+          </label>
+        </div>
+        <div>
+          <label data-i18n="clipSaveMode">Clip Save Mode</label>
+          <select id="clipMode">
+            <option value="event" data-i18n="clipModeEvent">Save for the full detection event</option>
+            <option value="fixed" data-i18n="clipModeFixed">Save a fixed clip length</option>
+          </select>
+        </div>
+        <div>
+          <label data-i18n="clipSec">Clip Length (seconds)</label>
+          <input id="clipSec" type="number" min="3" max="60" value="8" />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label data-i18n="bgColor">Background color</label>
+          <input id="bgColor" type="color" value="#0b0f17" />
+        </div>
+        <div>
+          <label data-i18n="language">Language</label>
+          <select id="langSelect">
+            <option value="en">English</option>
+            <option value="zh-Hant">繁體中文</option>
+            <option value="zh-Hans">简体中文</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <label>Detector Node</label>
+          <div class="btns">
+            <button class="ghost" id="btnSyncNow">Sync Now</button>
+            <button class="ghost" id="btnUpdateModel">Update Model</button>
+          </div>
+          <div class="hint" id="nodeActionHint">Use these actions to sync local logs and clips, or to check for the latest released model.</div>
+          <div class="hint" id="modelStatusHint">New models download automatically and are applied the next time detection becomes idle.</div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="hint">
+        <span data-i18n="clipBurnInHint">
+          Saved clips are recorded from the annotated canvas, so the footage includes boxes, trail, prediction curve, and timestamp.
+        </span>
+        <br/>
+        <span data-i18n="eventModeCap">
+          Event-based recording stops after the drone disappears, with a short delay. Safety cap: 2 minutes.
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT LOG MODAL -->
+<div class="backdrop" id="editBackdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Edit Log">
+    <div class="modal-h">
+      <b data-i18n="editLog">Edit Log</b>
+      <div class="btns">
+        <button class="ghost" id="btnCloseEdit" data-i18n="close">Close</button>
+      </div>
+    </div>
+    <div class="modal-b">
+      <div class="row">
+        <div>
+          <label data-i18n="event">Event</label>
+          <input id="editEvent" type="text" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label data-i18n="time">Time</label>
+          <input id="editTime" type="text" />
+        </div>
+        <div>
+          <label data-i18n="source">Source</label>
+          <input id="editSource" type="text" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label data-i18n="clip">Clip</label>
+          <input id="editClip" type="text" />
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div class="btns">
+        <button class="primary" id="btnSaveEdit" data-i18n="save">Save</button>
+        <button class="danger" id="btnDeleteLog" data-i18n="delete">Delete</button>
+      </div>
+      <div class="divider"></div>
+      <div class="hint" id="editHint"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app-i18n.js"></script>
+<script src="/static/app-ui.js"></script>
+<script src="/static/app-logs.js"></script>
+<script src="/static/app-detection.js"></script>
+<script src="/static/app-cameras.js"></script>
+</body>
+</html>
+

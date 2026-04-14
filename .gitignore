@@ -1,25 +1,77 @@
-# Specific files
-/src/detections.db
-/src/best_v11.pt
-
-# Whole output/clip folder
-/src/detection_clips/
-
-/runs/
-/weights/
-/models/*.pt
-/models/*.pth
-/models/*.engine
-/models/*.onnx
-
-# Python / Jupyter
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.ipynb_checkpoints/
-*.ipynb_checkpoints
+*.py[cod]
+*$py.class
 
-# OS junk
-.DS_Store
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Internal Readme / documentation builds
+README.txt
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
 Thumbs.db
+.DS_Store
+
+# Test / tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Logs
+*.log
+
+# Local secrets / environment overrides
+.env
+.env.*
+*.local
+
+# Runtime data: client
+client/clips/
+client/data/*.db
+client/data/*.db-*
+client/data/*.sqlite-*
+client/data/*.sqlite
+client/data/*.sqlite3
+client/data/*.json
+client/models/*.pt
+client/models/current_model.json
+
+# Runtime data: server
+server/clips/
+server/data/*.db
+server/data/*.db-*
+server/data/*.sqlite-*
+server/data/*.sqlite
+server/data/*.sqlite3
+server/data/*.json
+server/models/*.pt
+
+# Other local runtime artifacts
+detection_crops/
+archive/**/*.db
+archive/**/*.db-*
+archive/**/*.sqlite
+archive/**/*.sqlite-*
+archive/**/*.sqlite3
+archive/**/*.json
+archive/**/*.webm
+archive/**/*.jpg
+archive/**/*.jpeg
+archive/**/*.png
+archive/**/*.pt
+
+# Webview / packaged app leftovers
+*.pyd
+*.dll
+*.exe

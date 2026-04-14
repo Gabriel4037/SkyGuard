@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SkyGuard Central Admin Login</title>
+  <style>
+    :root{
+      --bg:#08111f;
+      --panel:#0f1b2d;
+      --line:rgba(159,178,201,0.18);
+      --text:#e6edf7;
+      --muted:#9fb2c9;
+      --blue:#49a6ff;
+      --red:#f06161;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+      font-family:Segoe UI, Arial, sans-serif;color:var(--text);
+      background:
+        radial-gradient(900px 540px at 12% -8%, rgba(73,166,255,0.18), transparent 60%),
+        radial-gradient(700px 480px at 100% 0%, rgba(55,214,122,0.08), transparent 55%),
+        var(--bg);
+      padding:18px;
+    }
+    .shell{display:grid;grid-template-columns:1.1fr .9fr;max-width:980px;width:100%;border-radius:26px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.34)}
+    .brand{
+      padding:42px;background:linear-gradient(160deg, rgba(12,29,50,0.98), rgba(13,45,82,0.92));
+      border:1px solid var(--line)
+    }
+    .eyebrow{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#8ed1ff}
+    .brand h1{margin:12px 0 12px;font-size:40px;line-height:1.04}
+    .brand p{margin:0;color:var(--muted);line-height:1.65;max-width:420px}
+    .brand .badge{
+      display:inline-flex;align-items:center;gap:10px;margin-top:24px;padding:10px 14px;
+      border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,0.05);color:var(--muted);font-size:13px
+    }
+    .dot{width:10px;height:10px;border-radius:999px;background:#49a6ff;box-shadow:0 0 0 6px rgba(73,166,255,0.16)}
+    .card{
+      padding:38px 32px;background:linear-gradient(180deg, rgba(15,27,45,0.98), rgba(10,20,35,0.98));
+      border:1px solid var(--line);border-left:none
+    }
+    h2{margin:0 0 8px;font-size:24px}
+    .sub{color:var(--muted);margin-bottom:22px;line-height:1.55}
+    label{display:block;font-size:13px;color:var(--muted);margin-top:14px;margin-bottom:6px}
+    input{
+      width:100%;padding:12px 13px;border-radius:12px;border:1px solid var(--line);
+      background:rgba(255,255,255,0.04);color:var(--text);outline:none
+    }
+    .row{display:flex;gap:10px;margin-top:18px;justify-content:flex-end}
+    button{
+      padding:10px 14px;border:0;border-radius:12px;cursor:pointer;font-weight:700
+    }
+    button.secondary{background:rgba(255,255,255,0.07);color:var(--text);border:1px solid var(--line)}
+    button.primary{background:var(--blue);color:#fff}
+    .msg{color:#ffc5c5;margin-top:12px;min-height:20px}
+    .hint{margin-top:20px;font-size:12px;color:var(--muted);line-height:1.5}
+    @media (max-width:860px){
+      .shell{grid-template-columns:1fr}
+      .card{border-left:1px solid var(--line);border-top:none}
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="brand">
+      <div class="eyebrow">Central Server</div>
+      <h1>SkyGuard Admin</h1>
+      <p>This login is for the central management console only. Use it to manage users, monitor active cameras, review uploaded evidence, and release new detection models.</p>
+      <div class="badge">
+        <span class="dot"></span>
+        <span>Separate from detector client login</span>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Admin Sign In</h2>
+      <div class="sub">Sign in to the central server dashboard.</div>
+      <label>Username</label>
+      <input id="loginUsername" type="text" autocomplete="username" />
+      <label>Password</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" />
+      <div class="row">
+        <button id="gotoRegister" class="secondary">Register</button>
+        <button id="loginSubmit" class="primary">Login</button>
+      </div>
+      <div class="msg" id="loginMsg"></div>
+      <div class="hint">This page belongs to the central admin app. Detector clients should use their own client login screen instead.</div>
+    </section>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script>
+    const { authLogin, refreshCurrentUser, apiFetch } = window.authApi || {};
+
+    function safeReplace(url) {
+      if (window.__auth_redirecting) return;
+      window.__auth_redirecting = true;
+      setTimeout(() => {
+        window.location.replace(url);
+      }, 120);
+    }
+
+    async function waitForSessionReady(retries = 10, delayMs = 120) {
+      for (let i = 0; i < retries; i += 1) {
+        const current = await refreshCurrentUser();
+        if (current) return current;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+      return null;
+    }
+
+    async function logoutSilently() {
+      try {
+        if (apiFetch) {
+          await apiFetch('/api/auth/logout', { method: 'POST' });
+        } else {
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+        }
+      } catch (_) {}
+    }
+
+    document.getElementById('loginSubmit').addEventListener('click', async () => {
+      const user = document.getElementById('loginUsername').value.trim();
+      const pwd = document.getElementById('loginPassword').value;
+      const msgEl = document.getElementById('loginMsg');
+      msgEl.textContent = '';
+      if (!user || !pwd) {
+        msgEl.textContent = 'Username and password required';
+        return;
+      }
+
+      try {
+        await authLogin({ username: user, password: pwd });
+        const currentUser = await waitForSessionReady();
+        if (!currentUser) throw { error: 'Session did not become ready' };
+        if (currentUser.role !== 'admin') {
+          await logoutSilently();
+          throw { error: 'Admin account required' };
+        }
+        safeReplace('/index.html');
+      } catch (err) {
+        msgEl.textContent = err.error || err.message || 'Login failed';
+        window.__auth_redirecting = false;
+      }
+    });
+
+    document.getElementById('gotoRegister').addEventListener('click', () => {
+      safeReplace('/register.html');
+    });
+
+    (async () => {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        const user = await refreshCurrentUser();
+        if (user && user.role === 'admin') {
+          safeReplace('/index.html');
+        } else if (user) {
+          await logoutSilently();
+          window.__auth_redirecting = false;
+        }
+      } catch (_) {
+        window.__auth_redirecting = false;
+      }
+    })();
+  </script>
+</body>
+</html>
