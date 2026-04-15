@@ -121,6 +121,24 @@
     }
   }
 
+  async function triggerNodeSync() {
+    try {
+      const apiFetch = window.authApi && typeof window.authApi.apiFetch === 'function'
+        ? window.authApi.apiFetch
+        : null;
+      if (apiFetch) {
+        await apiFetch('/api/node/sync', { method: 'POST' });
+        return;
+      }
+      await fetch('/api/node/sync', {
+        method: 'POST',
+        credentials: 'include'
+      });
+    } catch (_) {
+      // Best-effort sync trigger.
+    }
+  }
+
   function drawOverlay(videoEl, overlayEl, recordEl, detections, extras) {
     const octx = overlayEl.getContext('2d');
     const { rect, dpr } = fitOverlayToVideo(videoEl, overlayEl);
@@ -285,6 +303,7 @@
 
       this.recorder = null;
       this.recChunks = [];
+      this.detectInFlight = false;
       this.pendingClipText = null;
       this.latestDetections = [];
       this.latestExtras = { predCurve: null, trail: [] };
@@ -336,7 +355,7 @@
       this.stop();
 
       this.isDetecting = true;
-      setStatus(`${this.name}: detecting`, true);
+      setStatus(`${this.name}: ${t('detecting')}`, true);
 
       fitOverlayToVideo(this.video, this.overlay);
       this.restartTickLoop();
@@ -349,6 +368,8 @@
     }
 
     stop() {
+      this.finalizeActiveEventTime();
+
       this.isDetecting = false;
       if (this.timerId) { clearInterval(this.timerId); this.timerId = null; }
       if (this.abortCtl) { this.abortCtl.abort(); this.abortCtl = null; }
@@ -372,8 +393,38 @@
 
       const ctx = this.overlay.getContext('2d');
       ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
-      setStatus('idle', true);
+      setStatus(t('idle'), true);
       reportDetectorState(this.name, false);
+    }
+
+    finalizeActiveEventTime() {
+      if (!this.inEvent || !this.eventStartTs) return;
+
+      const start = this.eventStartTs;
+      const end = Date.now();
+      const timeText = `${fmtHHMMSS(start)} - ${fmtHHMMSS(end)}`;
+      const eventText = this.recentRow?.tdE?.textContent || `DRONE #${this.eventId}`;
+
+      if (this.recentRow?.tdT) this.recentRow.tdT.textContent = timeText;
+
+      if (this.activeClipContext) {
+        this.activeClipContext.timeText = timeText;
+        this.activeClipContext.eventText = eventText;
+      }
+
+      if (this.storedLogId) {
+        fetch(LOGS_UPDATE_ENDPOINT, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            id: this.storedLogId,
+            time: timeText,
+            event: eventText,
+            source: this.name,
+            clip: this.pendingClipText || (autoClip.checked ? t('saving') : t('clipOff'))
+          })
+        }).catch(() => {});
+      }
     }
 
     clearMotion() {
@@ -400,25 +451,26 @@
             time: timeText,
             event: eventText,
             source: this.name,
-            clip: 'saving...'
+            clip: t('saving')
           })
         });
         if (!r.ok) throw new Error('bad');
         const js = await r.json();
         this.storedLogId = js.id ?? null;
+        triggerNodeSync();
       } catch (_) {
         this.storedLogId = null;
       }
     }
 
-    async updateStoredLogClip(clipText, timeText, eventText) {
-      if (!this.storedLogId) return;
+    async updateStoredLogClip(clipText, timeText, eventText, storedLogId = this.storedLogId) {
+      if (!storedLogId) return;
       try {
         await fetch(LOGS_UPDATE_ENDPOINT, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify({
-            id: this.storedLogId,
+            id: storedLogId,
             time: timeText,
             event: eventText,
             source: this.name,
@@ -428,21 +480,29 @@
       } catch (_) {}
     }
 
-    async finalizeClipStatus(clipText) {
+    async finalizeClipStatus(clipText, clipContext = null) {
       this.pendingClipText = clipText;
-      if (this.recentRow?.tdL) {
-        this.recentRow.tdL.textContent = clipText;
-        this.recentRow.tdL.style.color = String(clipText).startsWith('Saved:') ? 'var(--text)' : 'var(--muted)';
+      const context = clipContext || this.activeClipContext || {
+        recentRow: this.recentRow,
+        storedLogId: this.storedLogId,
+        timeText: this.recentRow?.tdT?.textContent || '',
+        eventText: this.recentRow?.tdE?.textContent || ''
+      };
+
+      if (context.recentRow?.tdL) {
+        context.recentRow.tdL.textContent = clipText;
+        context.recentRow.tdL.style.color = String(clipText).startsWith(t('savedPrefix')) ? 'var(--text)' : 'var(--muted)';
       }
 
-      const timeText = this.recentRow?.tdT?.textContent || '';
-      const eventText = this.recentRow?.tdE?.textContent || '';
-      await this.updateStoredLogClip(clipText, timeText, eventText);
+      const timeText = context.timeText || context.recentRow?.tdT?.textContent || '';
+      const eventText = context.eventText || context.recentRow?.tdE?.textContent || '';
+      await this.updateStoredLogClip(clipText, timeText, eventText, context.storedLogId);
+      triggerNodeSync();
     }
 
     startRecordingForEvent() {
       if (!autoClip.checked) {
-        this.pendingClipText = 'off';
+        this.pendingClipText = t('clipOff');
         return;
       }
 
@@ -461,22 +521,35 @@
         return;
       }
 
-      this.pendingClipText = 'saving...';
+      this.pendingClipText = t('saving');
       this.recChunks = [];
 
-      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) this.recChunks.push(ev.data); };
+      const clipContext = {
+        recentRow: this.recentRow,
+        storedLogId: this.storedLogId,
+        timeText: this.recentRow?.tdT?.textContent || '',
+        eventText: this.recentRow?.tdE?.textContent || ''
+      };
+      this.activeClipContext = clipContext;
+
+      const recChunks = [];
+      rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recChunks.push(ev.data); };
 
       rec.onstop = async () => {
-        const blob = new Blob(this.recChunks, { type: rec.mimeType || 'video/webm' });
+        const blob = new Blob(recChunks, { type: rec.mimeType || 'video/webm' });
         if (!blob.size) {
-          await this.finalizeClipStatus('Save failed');
+          await this.finalizeClipStatus('Save failed', clipContext);
+          if (this.activeClipContext === clipContext) this.activeClipContext = null;
           return;
         }
         try {
           const res = await uploadClipToServer(blob, this.name, this.eventId);
-          await this.finalizeClipStatus(`Saved: ${res.filename}`);
+          await this.finalizeClipStatus(`${t('savedPrefix')} ${res.filename}`, clipContext);
         } catch (_) {
-          await this.finalizeClipStatus('Save failed');
+          await this.finalizeClipStatus('Save failed', clipContext);
+        } finally {
+          if (this.activeClipContext === clipContext) this.activeClipContext = null;
+          try { stream.getTracks().forEach((track) => track.stop()); } catch (_) {}
         }
       };
 
@@ -494,9 +567,13 @@
 
     stopRecordingIfAny() {
       if (this.eventCapTimer) { clearTimeout(this.eventCapTimer); this.eventCapTimer = null; }
-      try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch (_) {}
+      try {
+        if (this.recorder && this.recorder.state !== 'inactive') {
+          try { this.recorder.requestData(); } catch (_) {}
+          this.recorder.stop();
+        }
+      } catch (_) {}
       this.recorder = null;
-      this.recChunks = [];
     }
 
     stopRecordingForEventEnd() {
@@ -568,8 +645,10 @@
       const dataURL = await frameToDataUrl(this.video, 0.6);
       if (!dataURL) return;
 
-      if (this.abortCtl) this.abortCtl.abort();
-      this.abortCtl = new AbortController();
+      if (this.detectInFlight) return;
+      this.detectInFlight = true;
+      const abortCtl = new AbortController();
+      this.abortCtl = abortCtl;
 
       const payload = {
         frame: dataURL,
@@ -586,7 +665,7 @@
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload),
-          signal: this.abortCtl.signal
+          signal: abortCtl.signal
         });
         if (!resp.ok) return;
 
@@ -623,13 +702,13 @@
 
           // Create dashboard recent row immediately
           const start = this.eventStartTs;
-          const timeText = `${fmtHHMMSS(start)} – ...`;
+          const timeText = `${fmtHHMMSS(start)} - ...`;
           const eventText = `DRONE #${this.eventId}`;
           this.recentRow = addRecentLogRow({
             timeText,
             event: eventText,
             source: this.name,
-            clipText: autoClip.checked ? 'saving...' : 'off'
+            clipText: autoClip.checked ? t('saving') : t('clipOff')
           });
 
           // create stored log skeleton on server (best-effort)
@@ -645,7 +724,7 @@
           if (goneFor > this.goneDelayMs) {
             const start = this.eventStartTs || Date.now();
             const end = Date.now();
-            const timeText = `${fmtHHMMSS(start)} – ${fmtHHMMSS(end)}`;
+            const timeText = `${fmtHHMMSS(start)} - ${fmtHHMMSS(end)}`;
 
             // finalize dashboard row
             if (this.recentRow?.tdT) this.recentRow.tdT.textContent = timeText;
@@ -661,11 +740,13 @@
                     time: timeText,
                     event: this.recentRow?.tdE?.textContent || `DRONE #${this.eventId}`,
                     source: this.name,
-                    clip: this.pendingClipText || (autoClip.checked ? 'saving...' : 'off')
+                    clip: this.pendingClipText || (autoClip.checked ? t('saving') : t('clipOff'))
                   })
                 });
               } catch (_) {}
             }
+
+            this.finalizeActiveEventTime();
 
             // stop recording only for event mode
             this.stopRecordingForEventEnd();
@@ -677,6 +758,9 @@
 
       } catch (_) {
         // ignore abort/network
+      } finally {
+        if (this.abortCtl === abortCtl) this.abortCtl = null;
+        this.detectInFlight = false;
       }
     }
   }

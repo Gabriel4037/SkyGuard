@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from flask import Flask, jsonify, redirect, request, send_file, send_from_directory, session
+from flask import Flask, jsonify, request, send_file, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -398,6 +398,18 @@ def try_central_login(username: str, password: str):
     return response.json()
 
 
+def get_central_registration_status() -> dict:
+    import requests
+
+    response = requests.get(
+        f"{get_server_url()}/api/auth/register/status",
+        timeout=10,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    return {"ok": True, "enabled": bool(payload.get("enabled"))}
+
+
 def ensure_central_login() -> bool:
     if not _detector_client.server_url:
         return False
@@ -518,10 +530,17 @@ def api_auth_login():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_auth_logout():
+    if get_server_url() and _detector_client.session:
+        try:
+            _detector_client.session.post(f"{get_server_url()}/api/auth/logout", json={}, timeout=10)
+        except Exception:
+            pass
     session.pop("user_id", None)
     _detector_client.username = ""
     _detector_client.password = ""
     _detector_client.session.cookies.clear()
+    with _state_lock:
+        _runtime_state["last_heartbeat_at"] = None
     return jsonify({"ok": True})
 
 
@@ -566,6 +585,16 @@ def api_auth_register():
     session["user_id"] = remote_user_id
     configure_sync_client(username, password)
     return jsonify({"ok": True, "user_id": remote_user_id})
+
+
+@app.route("/api/auth/register/status", methods=["GET"])
+def api_auth_register_status():
+    if not get_server_url():
+        return jsonify({"ok": False, "enabled": False, "error": "central server not configured"}), 503
+    try:
+        return jsonify(get_central_registration_status())
+    except Exception:
+        return jsonify({"ok": False, "enabled": False, "error": "central server unavailable"}), 503
 
 
 @app.route("/api/client/settings", methods=["GET"])
@@ -889,21 +918,6 @@ def serve_login():
 @app.route("/register.html")
 def serve_register():
     return send_from_directory(STATIC_DIR, "register.html")
-
-
-@app.route("/users.html")
-def serve_users():
-    return redirect("/index.html")
-
-
-@app.route("/admin_monitor.html")
-def serve_admin_monitor():
-    return redirect("/index.html")
-
-
-@app.route("/model_manager.html")
-def serve_model_manager():
-    return redirect("/index.html")
 
 
 def run_detector_node(host: str = "127.0.0.1", port: int = 5050, debug: bool = False):

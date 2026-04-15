@@ -44,17 +44,9 @@
 
   <script src="/static/auth.js"></script>
   <script>
-    const { authRegister, authLogin, refreshCurrentUser, getClientConnection, setClientConnection, testClientConnection } = window.authApi || {};
+    const { authRegister, authLogin, refreshCurrentUser, waitForSessionReady, safeReplace, getClientConnection, setClientConnection, testClientConnection, getClientRegistrationStatus } = window.authApi || {};
     let isConnected = false;
-
-    async function waitForSessionReady(retries = 10, delayMs = 120) {
-      for (let i = 0; i < retries; i += 1) {
-        const current = await refreshCurrentUser();
-        if (current) return current;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-      return null;
-    }
+    let registrationPollTimer = null;
 
     function setConnectStatus(text, ok = false) {
       const el = document.getElementById('connectMsg');
@@ -92,6 +84,35 @@
       }
     }
 
+    async function ensureRegistrationEnabled() {
+      try {
+        const payload = await getClientRegistrationStatus();
+        if (!payload || !payload.enabled) {
+          safeReplace('/login.html');
+          return false;
+        }
+        return true;
+      } catch (_) {
+        document.getElementById('regMsg').textContent = 'Registration availability could not be loaded';
+        return false;
+      }
+    }
+
+    function startRegistrationPolling() {
+      if (registrationPollTimer) return;
+      registrationPollTimer = setInterval(() => {
+        if (!document.hidden) {
+          ensureRegistrationEnabled();
+        }
+      }, 5000);
+    }
+
+    function stopRegistrationPolling() {
+      if (!registrationPollTimer) return;
+      clearInterval(registrationPollTimer);
+      registrationPollTimer = null;
+    }
+
     document.getElementById('connectBtn').addEventListener('click', async () => {
       await connectToServer();
     });
@@ -110,6 +131,9 @@
         }
       }
 
+      const enabled = await ensureRegistrationEnabled();
+      if (!enabled) return;
+
       if (!username || !password) {
         msgEl.textContent = 'Username and password required';
         return;
@@ -120,18 +144,29 @@
         await authLogin({ username, password });
         const currentUser = await waitForSessionReady();
         if (!currentUser) throw { error: 'Session did not become ready' };
-        window.location.replace('/index.html');
+        safeReplace('/index.html');
       } catch (err) {
         msgEl.textContent = err.error || err.message || 'Registration failed';
       }
     });
 
     document.getElementById('regCancel').addEventListener('click', () => {
-      window.location.replace('/login.html');
+      safeReplace('/login.html');
     });
 
     document.getElementById('backToLogin').addEventListener('click', () => {
-      window.location.replace('/login.html');
+      safeReplace('/login.html');
+    });
+    window.addEventListener('focus', () => {
+      ensureRegistrationEnabled();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        ensureRegistrationEnabled();
+      }
+    });
+    window.addEventListener('beforeunload', () => {
+      stopRegistrationPolling();
     });
 
     (async () => {
@@ -141,6 +176,8 @@
           document.getElementById('serverIp').value = savedIp;
         }
         await loadConnection();
+        await ensureRegistrationEnabled();
+        startRegistrationPolling();
       } catch (_) {}
     })();
   </script>

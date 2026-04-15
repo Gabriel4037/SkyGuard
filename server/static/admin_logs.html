@@ -242,6 +242,11 @@
       color: var(--muted);
       font-size: 13px;
     }
+    .w-id { width: 72px; }
+    .w-time { width: 180px; }
+    .w-source { width: 140px; }
+    .w-clip { width: 120px; }
+    .muted-row { color:#64748b;padding:20px 10px; }
     @media (max-width: 1080px) {
       .grid { grid-template-columns: 1fr; }
       .table-wrap { max-height: none; }
@@ -278,11 +283,11 @@
           <table>
             <thead>
               <tr>
-                <th style="width:72px;">ID</th>
-                <th style="width:180px;">Time</th>
+                <th class="w-id">ID</th>
+                <th class="w-time">Time</th>
                 <th>Event</th>
-                <th style="width:140px;">Source</th>
-                <th style="width:120px;">Clip</th>
+                <th class="w-source">Source</th>
+                <th class="w-clip">Clip</th>
               </tr>
             </thead>
             <tbody id="logRows"></tbody>
@@ -335,7 +340,7 @@
 
   <script src="/static/auth.js"></script>
   <script>
-    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const { apiFetch, requireAdmin, safeReplace } = window.authApi || {};
     const logRows = document.getElementById('logRows');
     const totalLogs = document.getElementById('totalLogs');
     const logsWithVideo = document.getElementById('logsWithVideo');
@@ -358,15 +363,6 @@
       const idx = text.indexOf('Saved:');
       if (idx === -1) return null;
       return text.slice(idx + 6).trim();
-    }
-
-    async function ensureAdmin() {
-      const me = await apiFetch('/api/auth/me', { method: 'GET' });
-      if (!me || !me.user || me.user.role !== 'admin') {
-        window.location.replace('/login.html');
-        return false;
-      }
-      return true;
     }
 
     function setViewerForLog(log) {
@@ -418,7 +414,7 @@
 
       if (!logs.length) {
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="5" style="color:#64748b;padding:20px 10px;">No synced logs found.</td>';
+        tr.innerHTML = '<td colspan="5" class="muted-row">No synced logs found.</td>';
         logRows.appendChild(tr);
         fillDetail(null);
         return;
@@ -488,20 +484,20 @@
 
     document.getElementById('reloadBtn').addEventListener('click', loadLogs);
     document.getElementById('backBtn').addEventListener('click', () => {
-      window.location.replace('/index.html');
+      safeReplace('/index.html');
     });
     document.getElementById('saveBtn').addEventListener('click', saveSelected);
     document.getElementById('deleteBtn').addEventListener('click', deleteSelected);
 
     (async () => {
       try {
-        const ok = await ensureAdmin();
+        const ok = await requireAdmin();
         if (ok) {
           await loadLogs();
           window.setInterval(() => { loadLogs().catch(() => {}); }, 30000);
         }
       } catch (_) {
-        window.location.replace('/login.html');
+        safeReplace('/login.html');
       }
     })();
   </script>

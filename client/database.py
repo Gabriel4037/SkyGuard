@@ -166,7 +166,16 @@ def list_logs(conn: sqlite3.Connection, limit: int = 500) -> List[Dict]:
 def update_log(conn: sqlite3.Connection, log_id: int, time_text: str, event: str, source: str, clip: str) -> None:
     cur = conn.cursor()
     cur.execute(
-        "UPDATE logs SET time = ?, event = ?, source = ?, clip = ? WHERE id = ?",
+        """
+        UPDATE logs
+        SET time = ?,
+            event = ?,
+            source = ?,
+            clip = ?,
+            sync_status = 'pending',
+            synced_at = NULL
+        WHERE id = ?
+        """,
         (time_text, event, source, clip, int(log_id)),
     )
     conn.commit()

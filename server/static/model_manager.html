@@ -3,22 +3,82 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Model Center - Drone Detector</title>
+  <title>Model Center - SkyGuard Central Admin</title>
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; padding:18px; color:#111827; }
-    .card { background:#fff; padding:18px; border-radius:10px; max-width:960px; margin:12px auto; box-shadow:0 10px 28px rgba(0,0,0,0.08); }
-    h2, h3 { margin:0 0 10px; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .row > * { flex:1; min-width:180px; }
-    button { padding:10px 12px; border:0; background:#0b5cff; color:#fff; border-radius:8px; cursor:pointer; }
-    button.ghost { background:#e5e7eb; color:#111827; }
-    .muted { color:#6b7280; font-size:13px; }
-    .good { color:#166534; }
-    .bad { color:#b91c1c; }
-    .pill { display:inline-block; padding:4px 8px; border-radius:999px; background:#e0f2fe; color:#075985; font-size:12px; }
-    .meta { line-height:1.7; font-size:14px; }
-    input[type=file] { width:100%; }
-    .hint { color:#4b5563; font-size:13px; margin-top:10px; line-height:1.5; }
+    :root{
+      --bg:#08111f;
+      --panel:#0f1b2d;
+      --panel-2:#13233a;
+      --text:#e6edf7;
+      --muted:#9fb2c9;
+      --line:rgba(159,178,201,0.16);
+      --blue:#49a6ff;
+      --green:#37d67a;
+      --red:#f06161;
+      --shadow:0 18px 48px rgba(0,0,0,0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      padding:24px 18px 40px;
+      font-family:Segoe UI, Arial, sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(900px 540px at 12% -8%, rgba(73,166,255,0.18), transparent 60%),
+        radial-gradient(700px 480px at 100% 0%, rgba(55,214,122,0.12), transparent 55%),
+        var(--bg);
+    }
+    .card{
+      max-width:960px;
+      margin:12px auto;
+      padding:20px;
+      border:1px solid var(--line);
+      border-radius:22px;
+      background:linear-gradient(180deg, rgba(17,31,50,0.96), rgba(12,22,36,0.96));
+      box-shadow:var(--shadow);
+    }
+    h2,h3{margin:0 0 10px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .row > *{flex:1;min-width:180px}
+    button{
+      padding:10px 12px;
+      border:0;
+      background:var(--blue);
+      color:#fff;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    button.ghost{
+      background:rgba(255,255,255,0.06);
+      color:var(--text);
+      border:1px solid var(--line);
+    }
+    .muted{color:var(--muted);font-size:13px}
+    .good{color:#86efac}
+    .bad{color:#fca5a5}
+    .pill{
+      display:inline-block;
+      padding:4px 8px;
+      border-radius:999px;
+      background:rgba(73,166,255,0.12);
+      color:#8ed1ff;
+      font-size:12px;
+      border:1px solid rgba(73,166,255,0.18);
+    }
+    .meta{line-height:1.7;font-size:14px}
+    input[type=file]{
+      width:100%;
+      padding:10px 12px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:rgba(2,6,23,0.58);
+      color:var(--text);
+    }
+    .hint{color:var(--muted);font-size:13px;margin-top:10px;line-height:1.5}
+    .row-end{flex:0 0 auto}
+    .top-gap{margin-top:10px}
+    .msg-gap{margin-top:10px}
   </style>
 </head>
 <body>
@@ -26,9 +86,9 @@
     <div class="row">
       <div>
         <h2>Model Center</h2>
-        <div class="muted">Release a `.pt` model from the central server so detector nodes can download it later.</div>
+        <div class="muted">Release a `.pt` model.</div>
       </div>
-      <div style="flex:0 0 auto;">
+      <div class="row-end">
         <button id="backBtn" class="ghost">Back to Dashboard</button>
       </div>
     </div>
@@ -36,41 +96,32 @@
 
   <div class="card">
     <h3>Current Released Model</h3>
-    <div id="currentMeta" class="meta muted">Loading current model info...</div>
+    <div id="currentMeta" class="meta muted">Loading model info...</div>
   </div>
 
   <div class="card">
     <h3>Release New Model</h3>
-    <div class="row" style="margin-top:10px;">
+    <div class="row top-gap">
       <div>
         <input id="modelFile" type="file" accept=".pt" />
       </div>
-      <div style="flex:0 0 auto;">
+      <div class="row-end">
         <button id="releaseBtn">Release Model</button>
       </div>
     </div>
-    <div id="releaseMsg" class="muted" style="margin-top:10px;"></div>
-    <div class="hint">Recommended flow: release the approved `.pt` file here on the central server, then use `Update Model` on detector nodes when you are ready.</div>
+    <div id="releaseMsg" class="muted msg-gap"></div>
+    <div class="hint">Release the approved `.pt` file here.</div>
   </div>
 
   <script src="/static/auth.js"></script>
   <script>
-    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const { apiFetch, requireAdmin, safeReplace } = window.authApi || {};
     const currentMeta = document.getElementById('currentMeta');
     const releaseMsg = document.getElementById('releaseMsg');
 
     document.getElementById('backBtn').addEventListener('click', () => {
-      window.location.replace('/index.html');
+      safeReplace('/index.html');
     });
-
-    async function ensureAdmin() {
-      const me = await apiFetch('/api/auth/me', { method: 'GET' });
-      if (!me || !me.user || me.user.role !== 'admin') {
-        window.location.replace('/login.html');
-        return false;
-      }
-      return true;
-    }
 
     async function loadCurrentModel() {
       try {
@@ -86,7 +137,7 @@
         `;
         currentMeta.className = 'meta';
       } catch (_) {
-        currentMeta.textContent = 'No released model yet, or this page is not running on the central server.';
+        currentMeta.textContent = 'No released model yet.';
         currentMeta.className = 'meta bad';
       }
     }
@@ -122,10 +173,10 @@
 
     (async () => {
       try {
-        const ok = await ensureAdmin();
+        const ok = await requireAdmin();
         if (ok) await loadCurrentModel();
       } catch (_) {
-        window.location.replace('/login.html');
+        safeReplace('/login.html');
       }
     })();
   </script>

@@ -3,28 +3,108 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>User Management - Drone Detector</title>
+  <title>User Management - SkyGuard Central Admin</title>
   <style>
-    body { font-family: Arial, Helvetica, sans-serif; background:#f5f7fa; margin:0; padding:18px; }
-    .card { background:#fff; padding:16px; border-radius:8px; max-width:900px; margin:12px auto; box-shadow:0 6px 18px rgba(0,0,0,0.05); }
-    table{ width:100%; border-collapse:collapse; }
-    th,td{ padding:8px; border-bottom:1px solid #eee; text-align:left; }
-    input[type=text], select, input[type=password] { padding:6px; border:1px solid #ddd; border-radius:4px; width:100%; box-sizing:border-box; }
-    .row{ display:flex; gap:8px; }
-    .row > *{ flex:1; }
-    button{ padding:8px 10px; border:0; background:#0078D7; color:#fff; border-radius:6px; cursor:pointer; }
-    .danger{ background:#ef4444; }
+    :root{
+      --bg:#08111f;
+      --panel:#0f1b2d;
+      --panel-2:#13233a;
+      --text:#e6edf7;
+      --muted:#9fb2c9;
+      --line:rgba(159,178,201,0.16);
+      --blue:#49a6ff;
+      --green:#37d67a;
+      --red:#f06161;
+      --shadow:0 18px 48px rgba(0,0,0,0.28);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      padding:24px 18px 40px;
+      font-family:Segoe UI, Arial, sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(900px 540px at 12% -8%, rgba(73,166,255,0.18), transparent 60%),
+        radial-gradient(700px 480px at 100% 0%, rgba(55,214,122,0.12), transparent 55%),
+        var(--bg);
+    }
+    .card{
+      max-width:1080px;
+      margin:0 auto;
+      padding:22px;
+      border:1px solid var(--line);
+      border-radius:22px;
+      background:linear-gradient(180deg, rgba(17,31,50,0.96), rgba(12,22,36,0.96));
+      box-shadow:var(--shadow);
+    }
+    h2{margin:0 0 14px;font-size:30px}
+    strong{color:var(--text)}
+    hr{
+      border:0;
+      height:1px;
+      background:var(--line);
+      margin:18px 0;
+    }
+    table{width:100%;border-collapse:collapse}
+    th,td{
+      padding:10px 8px;
+      border-bottom:1px solid rgba(159,178,201,0.12);
+      text-align:left;
+      vertical-align:top;
+    }
+    th{
+      color:var(--muted);
+      font-size:12px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    }
+    input[type=text], select, input[type=password]{
+      padding:10px 12px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      width:100%;
+      box-sizing:border-box;
+      background:rgba(2,6,23,0.58);
+      color:var(--text);
+    }
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .row > *{flex:1;min-width:160px}
+    button{
+      padding:10px 12px;
+      border:0;
+      background:var(--blue);
+      color:#fff;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    .ghost{
+      background:rgba(255,255,255,0.06);
+      color:var(--text);
+      border:1px solid var(--line);
+    }
+    .danger{background:var(--red)}
+    .top-actions{margin-top:8px}
+    .top-actions .ghost{margin-bottom:8px}
+    .section{margin-bottom:12px}
+    .section-head{margin-top:8px}
+    .toggle-row{margin-top:8px;display:flex;align-items:center;gap:10px}
+    .toggle-label{display:flex;align-items:center;gap:8px;margin:0}
+    .checkbox-inline{width:auto}
+    .status-error{color:#fca5a5;margin-top:6px}
+    .status-muted{color:var(--muted);margin-top:6px}
+    .table-top{margin-top:8px}
   </style>
 </head>
 <body>
   <div class="card">
     <h2>User Management</h2>
-    <div style="margin-top:8px;">
-    <button id="backBtn" class="ghost" style="margin-bottom:8px;">Back to Dashboard</button>
-  </div>
-    <div style="margin-bottom:12px;">
+    <div class="top-actions">
+      <button id="backBtn" class="ghost">Back to Dashboard</button>
+    </div>
+    <div class="section">
       <strong>Create User</strong>
-      <div class="row" style="margin-top:8px;">
+      <div class="row section-head">
         <input id="newUsername" placeholder="Username" />
         <input id="newPassword" type="password" placeholder="Password" />
         <select id="newRole">
@@ -33,14 +113,27 @@
         </select>
         <button id="createBtn">Create</button>
       </div>
-      <div id="createMsg" style="color:#c00; margin-top:6px;"></div>
+      <div id="createMsg" class="status-error"></div>
+    </div>
+
+    <hr/>
+
+    <div class="section">
+      <strong>Client Registration</strong>
+      <div class="toggle-row">
+        <label class="toggle-label">
+          <input id="clientRegistrationEnabled" type="checkbox" class="checkbox-inline" />
+          <span>Allow client sign-up</span>
+        </label>
+      </div>
+      <div id="settingsMsg" class="status-muted"></div>
     </div>
 
     <hr/>
 
     <div>
       <strong>Existing Users</strong>
-      <table id="usersTable" style="margin-top:8px;">
+      <table id="usersTable" class="table-top">
         <thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Created At</th><th>Last Login</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
@@ -49,13 +142,29 @@
 
   <script src="/static/auth.js"></script>
   <script>
-    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const { apiFetch, requireAdmin, safeReplace } = window.authApi || {};
     const backBtn = document.getElementById('backBtn');
-  if (backBtn) {
-    backBtn.addEventListener('click', () => {
-      window.location.replace('/index.html');
-    });
-  }
+    const registrationToggle = document.getElementById('clientRegistrationEnabled');
+    const settingsMsg = document.getElementById('settingsMsg');
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        safeReplace('/index.html');
+      });
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await apiFetch('/api/admin/settings', { method: 'GET' });
+        registrationToggle.checked = !!res?.settings?.client_registration_enabled;
+        settingsMsg.style.color = 'var(--muted)';
+        settingsMsg.textContent = registrationToggle.checked
+          ? 'Client sign-up is on.'
+          : 'Client sign-up is off.';
+      } catch (err) {
+        settingsMsg.style.color = '#fca5a5';
+        settingsMsg.textContent = 'Failed to load setting.';
+      }
+    }
 
     async function loadUsers() {
       try {
@@ -88,9 +197,8 @@
           tbody.appendChild(tr);
         });
 
-        // Bind events
         document.querySelectorAll('.saveBtn').forEach(b => {
-          b.addEventListener('click', async (e) => {
+          b.addEventListener('click', async () => {
             const id = b.dataset.id;
             const username = document.querySelector(`.u-username[data-id="${id}"]`).value.trim();
             const role = document.querySelector(`.u-role[data-id="${id}"]`).value;
@@ -128,7 +236,6 @@
         });
 
       } catch (err) {
-        console.error(err);
         const tbody = document.querySelector('#usersTable tbody');
         tbody.innerHTML = '<tr><td colspan="6">Failed to load</td></tr>';
       }
@@ -144,32 +251,48 @@
       try {
         const r = await apiFetch('/api/users/create', { method: 'POST', body: { username, password, role } });
         if (r.ok) {
-          msg.style.color = 'green';
+          msg.style.color = '#86efac';
           msg.textContent = 'User created successfully';
           document.getElementById('newUsername').value = '';
           document.getElementById('newPassword').value = '';
           loadUsers();
         } else {
-          msg.style.color = '#c00';
+          msg.style.color = '#fca5a5';
           msg.textContent = r.error || 'Creation failed';
         }
       } catch (err) {
-        msg.style.color = '#c00';
+        msg.style.color = '#fca5a5';
         msg.textContent = 'Creation failed';
       }
     });
 
-    // Verify permissions on page load (redirect to login if not admin)
+    registrationToggle.addEventListener('change', async () => {
+      settingsMsg.style.color = 'var(--muted)';
+      settingsMsg.textContent = 'Saving...';
+      try {
+        const r = await apiFetch('/api/admin/settings', {
+          method: 'POST',
+          body: { client_registration_enabled: registrationToggle.checked },
+        });
+        registrationToggle.checked = !!r?.settings?.client_registration_enabled;
+        settingsMsg.textContent = registrationToggle.checked
+          ? 'Client sign-up is on.'
+          : 'Client sign-up is off.';
+      } catch (err) {
+        registrationToggle.checked = !registrationToggle.checked;
+        settingsMsg.style.color = '#fca5a5';
+        settingsMsg.textContent = 'Failed to save setting.';
+      }
+    });
+
     (async () => {
       try {
-        const me = await apiFetch('/api/auth/me', { method: 'GET' });
-        if (!me || !me.user || me.user.role !== 'admin') {
-          window.location.replace('/login.html');
-          return;
-        }
+        const me = await requireAdmin();
+        if (!me) return;
+        await loadSettings();
         await loadUsers();
       } catch (e) {
-        window.location.replace('/login.html');
+        safeReplace('/login.html');
       }
     })();
   </script>

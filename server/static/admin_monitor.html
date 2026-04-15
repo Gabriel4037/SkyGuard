@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SkyGuard Admin Monitor</title>
   <style>
     :root{
@@ -41,11 +41,8 @@
     h1{margin:10px 0 6px;font-size:30px}
     .sub{color:var(--muted);font-size:14px}
     .actions{display:flex;gap:10px;flex-wrap:wrap}
-    button{
-      border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer
-    }
+    button{border:0;border-radius:12px;padding:10px 14px;font-weight:700;cursor:pointer}
     .ghost{background:rgba(255,255,255,0.06);color:var(--text);border:1px solid var(--line)}
-    .danger{background:var(--red);color:#fff}
     .status-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
     .pill{
       display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;
@@ -57,13 +54,63 @@
     .card-head{display:flex;justify-content:space-between;gap:12px;padding:16px 16px 12px;border-bottom:1px solid var(--line)}
     .title{font-size:18px;font-weight:800}
     .meta{font-size:12px;color:var(--muted);line-height:1.6}
-    .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-    .chip{padding:5px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:rgba(255,255,255,0.06)}
-    .chip.online{color:#c9f5db;border-color:rgba(55,214,122,0.28)}
-    .chip.detecting{color:#ffe3aa;border-color:rgba(246,183,60,0.3)}
-    .frame-wrap{aspect-ratio:16/9;background:#030712}
-    .frame-wrap img{display:block;width:100%;height:100%;object-fit:cover;background:#030712}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:7px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:700;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      border:1px solid rgba(159,178,201,0.14);
+      background:rgba(255,255,255,0.04);
+      color:var(--muted);
+    }
+    .chip::before{
+      content:"";
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      background:currentColor;
+      box-shadow:0 0 0 4px rgba(255,255,255,0.06);
+      flex:0 0 auto;
+    }
+    .chip.online{
+      color:#8ee6b3;
+      background:rgba(55,214,122,0.10);
+      border-color:rgba(55,214,122,0.18);
+    }
+    .chip.idle{
+      color:#8fb0d6;
+      background:rgba(73,166,255,0.10);
+      border-color:rgba(73,166,255,0.18);
+    }
+    .chip.detecting{
+      color:#ffd27d;
+      background:rgba(246,183,60,0.12);
+      border-color:rgba(246,183,60,0.20);
+    }
+    .frame-wrap{
+      position:relative;
+      width:100%;
+      aspect-ratio:16/9;
+      background:rgba(2,6,23,0.5);
+      border-top:1px solid var(--line);
+      overflow:hidden;
+    }
+    .frame-wrap img{
+      display:block;
+      width:100%;
+      height:100%;
+      object-fit:contain;
+      background:#030712;
+    }
     .empty-state{margin-top:20px;padding:32px;text-align:center;color:var(--muted)}
+    .text-strong{color:var(--text)}
+    .hidden{display:none}
     @media (max-width:900px){
       .hero-top{grid-template-columns:1fr}
       .actions{justify-content:flex-start}
@@ -81,26 +128,26 @@
         </div>
         <div class="actions">
           <button class="ghost" id="backBtn">Back to Dashboard</button>
-          <button class="danger" id="logoutBtn">Logout</button>
         </div>
       </div>
       <div class="status-row">
         <div class="pill"><span class="dot"></span><span id="monitorStatus">Waiting for cameras...</span></div>
-        <div class="pill">Last refresh: <strong id="lastRefresh" style="color:var(--text)">-</strong></div>
+        <div class="pill">Last refresh: <strong id="lastRefresh" class="text-strong">-</strong></div>
       </div>
     </section>
 
     <div id="cameras-grid" class="grid"></div>
-    <div id="emptyState" class="empty-state" style="display:none;">No online cameras.</div>
+    <div id="emptyState" class="empty-state hidden">No online cameras.</div>
   </div>
 
   <script src="/static/auth.js"></script>
   <script>
-    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const { apiFetch, requireAdmin, safeReplace } = window.authApi || {};
     let cameraPollId = null;
     let framePollId = null;
     let heartbeatPollId = null;
     let currentCameras = [];
+    const cameraCardMap = new Map();
     const viewerId = `viewer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     function formatDateTime(value) {
@@ -110,44 +157,93 @@
       return dt.toLocaleString();
     }
 
+    function formatClock(value = new Date()) {
+      const dt = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(dt.getTime())) return '-';
+      return dt.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+    }
+
+    function createCameraCard(camera) {
+      const card = document.createElement('section');
+      card.className = 'card';
+      card.dataset.cameraId = String(camera.internal_id);
+      card.innerHTML = `
+        <div class="card-head">
+          <div>
+            <div class="title"></div>
+            <div class="meta">
+              <div class="meta-user"></div>
+              <div class="meta-camera-id"></div>
+              <div class="meta-last-seen"></div>
+            </div>
+          </div>
+          <div class="chips">
+            <span class="chip online">Online</span>
+            <span class="chip chip-detect"></span>
+          </div>
+        </div>
+        <div class="frame-wrap">
+          <img class="stream-frame" alt="" />
+        </div>
+      `;
+      cameraCardMap.set(String(camera.internal_id), card);
+      updateCameraCard(card, camera);
+      return card;
+    }
+
+    function updateCameraCard(card, camera) {
+      card.querySelector('.title').textContent = camera.camera_name;
+      card.querySelector('.meta-user').textContent = `User: ${camera.username}`;
+      card.querySelector('.meta-camera-id').textContent = `Camera ID: ${camera.internal_id}`;
+      card.querySelector('.meta-last-seen').textContent = `Last seen: ${formatDateTime(camera.last_seen_at)}`;
+
+      const detectChip = card.querySelector('.chip-detect');
+      detectChip.textContent = camera.is_detecting ? 'Detecting' : 'Idle';
+      detectChip.className = `chip chip-detect ${camera.is_detecting ? 'detecting' : 'idle'}`;
+
+      const img = card.querySelector('.stream-frame');
+      img.dataset.cameraId = String(camera.internal_id);
+      img.alt = camera.camera_name;
+    }
+
     function renderCameras(cameras) {
       currentCameras = cameras || [];
       const grid = document.getElementById('cameras-grid');
       const empty = document.getElementById('emptyState');
-      grid.innerHTML = '';
 
       if (!currentCameras.length) {
-        empty.style.display = 'block';
+        for (const card of cameraCardMap.values()) card.remove();
+        cameraCardMap.clear();
+        empty.classList.remove('hidden');
         document.getElementById('monitorStatus').textContent = 'No online cameras';
         return;
       }
 
-      empty.style.display = 'none';
+      empty.classList.add('hidden');
       document.getElementById('monitorStatus').textContent = `${currentCameras.length} online camera(s)`;
 
+      const nextIds = new Set(currentCameras.map((camera) => String(camera.internal_id)));
+      for (const [cameraId, card] of Array.from(cameraCardMap.entries())) {
+        if (!nextIds.has(cameraId)) {
+          card.remove();
+          cameraCardMap.delete(cameraId);
+        }
+      }
+
       currentCameras.forEach((camera) => {
-        const card = document.createElement('section');
-        card.className = 'card';
-        card.innerHTML = `
-          <div class="card-head">
-            <div>
-              <div class="title">${camera.camera_name}</div>
-              <div class="meta">
-                <div>User: ${camera.username}</div>
-                <div>Camera ID: ${camera.internal_id}</div>
-                <div>Last seen: ${formatDateTime(camera.last_seen_at)}</div>
-              </div>
-            </div>
-            <div class="chips">
-              <span class="chip online">Online</span>
-              <span class="chip ${camera.is_detecting ? 'detecting' : ''}">${camera.is_detecting ? 'Detecting' : 'Idle'}</span>
-            </div>
-          </div>
-          <div class="frame-wrap">
-            <img class="stream-frame" data-camera-id="${camera.internal_id}" alt="${camera.camera_name}" />
-          </div>
-        `;
-        grid.appendChild(card);
+        const cameraId = String(camera.internal_id);
+        let card = cameraCardMap.get(cameraId);
+        if (!card) {
+          card = createCameraCard(camera);
+          grid.appendChild(card);
+        } else {
+          updateCameraCard(card, camera);
+        }
       });
 
       refreshFrames();
@@ -155,8 +251,20 @@
 
     function refreshFrames() {
       document.querySelectorAll('.stream-frame').forEach((img) => {
+        if (img.dataset.loading === 'true') return;
         const cameraId = img.dataset.cameraId;
-        img.src = `/api/admin/camera/frame?camera_id=${cameraId}&t=${Date.now()}`;
+        if (!cameraId) return;
+        const nextSrc = `/api/admin/camera/frame?camera_id=${cameraId}&t=${Date.now()}`;
+        const preload = new Image();
+        img.dataset.loading = 'true';
+        preload.onload = () => {
+          img.src = nextSrc;
+          img.dataset.loading = 'false';
+        };
+        preload.onerror = () => {
+          img.dataset.loading = 'false';
+        };
+        preload.src = nextSrc;
       });
     }
 
@@ -164,7 +272,7 @@
       try {
         const data = await apiFetch('/api/admin/cameras', { method: 'GET' });
         renderCameras(data.cameras || []);
-        document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+        document.getElementById('lastRefresh').textContent = formatClock();
       } catch (error) {
         document.getElementById('monitorStatus').textContent = error.error || error.message || 'Monitor unavailable';
         renderCameras([]);
@@ -180,31 +288,13 @@
       } catch (_) {}
     }
 
-    async function ensureAdmin() {
-      const me = await apiFetch('/api/auth/me', { method: 'GET' });
-      if (!me || !me.user || me.user.role !== 'admin') {
-        window.location.replace('/login.html');
-        return false;
-      }
-      return true;
-    }
-
-    async function logout() {
-      try {
-        await apiFetch('/api/auth/logout', { method: 'POST' });
-      } finally {
-        window.location.replace('/login.html');
-      }
-    }
-
     document.getElementById('backBtn').addEventListener('click', () => {
-      window.location.replace('/index.html');
+      safeReplace('/index.html');
     });
-    document.getElementById('logoutBtn').addEventListener('click', logout);
 
     window.addEventListener('load', async () => {
       try {
-        const ok = await ensureAdmin();
+        const ok = await requireAdmin();
         if (!ok) return;
         await sendHeartbeat();
         await loadCameras();
@@ -212,7 +302,7 @@
         cameraPollId = setInterval(loadCameras, 4000);
         framePollId = setInterval(refreshFrames, 1000);
       } catch (_) {
-        window.location.replace('/login.html');
+        safeReplace('/login.html');
       }
     });
 

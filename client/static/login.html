@@ -16,6 +16,7 @@
     .msg { color:#c00; margin-top:10px; min-height:18px; }
     .status { margin-top:10px; font-size:12px; color:#495057; min-height:18px; }
     .status.ok { color:#198754; }
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
@@ -33,34 +34,19 @@
     <label>Password</label>
     <input id="loginPassword" type="password" autocomplete="current-password" />
     <div class="row">
-      <button id="gotoRegister" class="secondary">Register</button>
+      <button id="gotoRegister" class="secondary hidden">Register</button>
       <button id="loginSubmit">Login</button>
     </div>
     <div class="msg" id="loginMsg"></div>
-    <div style="margin-top:10px; font-size:12px; color:#6c757d; line-height:1.45;">This login is for the detector client app. Central admin uses a separate login screen.</div>
   </div>
 
   <script src="/static/auth.js"></script>
   <script>
-    const { authLogin, refreshCurrentUser, getClientConnection, setClientConnection, testClientConnection } = window.authApi || {};
+    const { authLogin, refreshCurrentUser, waitForSessionReady, safeReplace, getClientConnection, setClientConnection, testClientConnection, getClientRegistrationStatus } = window.authApi || {};
     let isConnected = false;
-
-    function safeReplace(url) {
-      if (window.__auth_redirecting) return;
-      window.__auth_redirecting = true;
-      setTimeout(() => {
-        window.location.replace(url);
-      }, 120);
-    }
-
-    async function waitForSessionReady(retries = 10, delayMs = 120) {
-      for (let i = 0; i < retries; i += 1) {
-        const current = await refreshCurrentUser();
-        if (current) return current;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-      return null;
-    }
+    let registrationPollTimer = null;
+    let registrationUiLoaded = false;
+    let registrationEnabled = null;
 
     function setConnectStatus(text, ok = false) {
       const el = document.getElementById('connectMsg');
@@ -76,6 +62,47 @@
           document.getElementById('serverIp').value = payload.server_ip;
         }
       } catch (_) {}
+    }
+
+    async function refreshRegistrationUi() {
+      const registerBtn = document.getElementById('gotoRegister');
+
+      try {
+        const payload = await getClientRegistrationStatus();
+        const enabled = !!(payload && payload.enabled);
+        if (!registrationUiLoaded || registrationEnabled !== enabled) {
+          registrationEnabled = enabled;
+          registrationUiLoaded = true;
+          if (enabled) {
+            registerBtn.classList.remove('hidden');
+          } else {
+            registerBtn.classList.add('hidden');
+          }
+        } else {
+          return;
+        }
+      } catch (_) {
+        if (!registrationUiLoaded) {
+          registerBtn.classList.add('hidden');
+          registrationUiLoaded = true;
+          registrationEnabled = false;
+        }
+      }
+    }
+
+    function startRegistrationPolling() {
+      if (registrationPollTimer) return;
+      registrationPollTimer = setInterval(() => {
+        if (!document.hidden) {
+          refreshRegistrationUi();
+        }
+      }, 5000);
+    }
+
+    function stopRegistrationPolling() {
+      if (!registrationPollTimer) return;
+      clearInterval(registrationPollTimer);
+      registrationPollTimer = null;
     }
 
     async function connectToServer() {
@@ -131,10 +158,6 @@
       }
     });
 
-    document.getElementById('gotoRegister').addEventListener('click', () => {
-      safeReplace('/register.html');
-    });
-
     (async () => {
       try {
         const savedIp = localStorage.getItem('client_server_ip');
@@ -142,6 +165,8 @@
           document.getElementById('serverIp').value = savedIp;
         }
         await loadConnection();
+        await refreshRegistrationUi();
+        startRegistrationPolling();
         await new Promise((resolve) => setTimeout(resolve, 80));
         const user = await refreshCurrentUser();
         if (user) safeReplace('/index.html');
@@ -149,6 +174,20 @@
         window.__auth_redirecting = false;
       }
     })();
+    document.getElementById('gotoRegister').addEventListener('click', () => {
+      safeReplace('/register.html');
+    });
+    window.addEventListener('focus', () => {
+      refreshRegistrationUi();
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        refreshRegistrationUi();
+      }
+    });
+    window.addEventListener('beforeunload', () => {
+      stopRegistrationPolling();
+    });
   </script>
 </body>
 </html>

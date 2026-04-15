@@ -63,19 +63,19 @@
       <div class="card-h">
         <b>${name}</b>
         <div class="btns">
-          <button class="ghost btnRemove">Remove</button>
+          <button class="ghost btnRemove">${t('remove')}</button>
         </div>
       </div>
       <div class="card-b">
         <div class="row">
           <div>
-            <label>Camera Device</label>
+            <label class="lblDevice">${t('cameraDevice')}</label>
             <select class="selDevice"></select>
           </div>
           <div>
-            <label>Resolution Hint</label>
+            <label class="lblRes">${t('resolutionHint')}</label>
             <select class="selRes">
-              <option value="default">Default</option>
+              <option value="default">${t('defaultOption')}</option>
               <option value="720">1280×720</option>
               <option value="1080">1920×1080</option>
             </select>
@@ -93,14 +93,14 @@
         <div class="divider"></div>
 
         <div class="btns">
-          <button class="primary btnStart">Start</button>
-          <button class="danger btnStop">Stop</button>
-          <button class="btnDetOn">Detect On</button>
-          <button class="danger btnDetOff">Detect Off</button>
+          <button class="primary btnStart">${t('start')}</button>
+          <button class="danger btnStop">${t('stop')}</button>
+          <button class="btnDetOn">${t('detectOn')}</button>
+          <button class="danger btnDetOff">${t('detectOff')}</button>
         </div>
 
         <div class="divider"></div>
-        <div class="hint">Source: <b>${name}</b></div>
+        <div class="hint"><span class="sourceLabel">${t('sourceLabel')}</span>: <b>${name}</b></div>
       </div>
     `;
 
@@ -131,7 +131,7 @@
         selDevice.innerHTML = '';
         const optAuto = document.createElement('option');
         optAuto.value = '';
-        optAuto.textContent = 'Auto / Default';
+        optAuto.textContent = t('autoDefault');
         selDevice.appendChild(optAuto);
 
         for (let i = 0; i < deviceList.length; i++) {
@@ -192,7 +192,31 @@
       remove() { this.stop(); tile.remove(); }
     };
 
+    tileObj.applyI18n = function() {
+      const removeBtn = tile.querySelector('.btnRemove');
+      const deviceLabel = tile.querySelector('.lblDevice');
+      const resLabel = tile.querySelector('.lblRes');
+      const defaultOption = selRes.querySelector('option[value="default"]');
+      const startBtn = tile.querySelector('.btnStart');
+      const stopBtn = tile.querySelector('.btnStop');
+      const detOnBtn = tile.querySelector('.btnDetOn');
+      const detOffBtn = tile.querySelector('.btnDetOff');
+      const sourceLabel = tile.querySelector('.sourceLabel');
+
+      if (removeBtn) removeBtn.textContent = t('remove');
+      if (deviceLabel) deviceLabel.textContent = t('cameraDevice');
+      if (resLabel) resLabel.textContent = t('resolutionHint');
+      if (defaultOption) defaultOption.textContent = t('defaultOption');
+      if (startBtn) startBtn.textContent = t('start');
+      if (stopBtn) stopBtn.textContent = t('stop');
+      if (detOnBtn) detOnBtn.textContent = t('detectOn');
+      if (detOffBtn) detOffBtn.textContent = t('detectOff');
+      if (sourceLabel) sourceLabel.textContent = t('sourceLabel');
+      this.populateDevices();
+    };
+
     tileObj.populateDevices();
+    tileObj.applyI18n();
 
     tile.querySelector('.btnStart').addEventListener('click', () => tileObj.start());
     tile.querySelector('.btnStop').addEventListener('click', () => tileObj.stop());
@@ -248,6 +272,9 @@
   liveStopAll.addEventListener('click', stopAll);
   liveDetectAll.addEventListener('click', detectAllOn);
   liveDetectOffAll.addEventListener('click', detectAllOff);
+  window.addEventListener('i18n-updated', () => {
+    for (const tile of camTiles) tile.applyI18n?.();
+  });
 
   // =======================
   // File mode detector + alert
@@ -406,7 +433,7 @@ function startStreamUpload(videoElement, recordCanvas, cameraId) {
   (async () => {
     await refreshDevices();
     camTiles.push(createCamTile()); // initial camera tile
-    setStatus('idle', true);
+    setStatus(t('idle'), true);
   })();
 
 

@@ -44,11 +44,11 @@
         method:'POST',
         body: payload
       });
-      toast(t('edit'), 'Saved');
+      toast(t('edit'), t('saved'));
       closeEdit();
       await loadStoredLogs();
     } catch (e) {
-      toast('Error', e.error || e.message || 'Update failed');
+      toast(t('error'), e.error || e.message || t('updateFailed'));
     }
   });
 
@@ -59,11 +59,11 @@
         method:'POST',
         body: { id: editingLog.id }
       });
-      toast(t('delete'), 'Deleted');
+      toast(t('delete'), t('deleted'));
       closeEdit();
       await loadStoredLogs();
     } catch (e) {
-      toast('Error', e.error || e.message || 'Delete failed');
+      toast(t('error'), e.error || e.message || t('deleteFailed'));
     }
   });
 
@@ -81,7 +81,7 @@
 
         const tdClip = document.createElement('td');
         tdClip.textContent = log.clip ?? '-';
-        tdClip.style.color = (log.clip && String(log.clip).startsWith('Saved:')) ? 'var(--text)' : 'var(--muted)';
+        tdClip.style.color = (log.clip && String(log.clip).startsWith(t('savedPrefix'))) ? 'var(--text)' : 'var(--muted)';
 
         tr.appendChild(tdId);
         tr.appendChild(tdTime);
@@ -96,7 +96,7 @@
       const td = document.createElement('td');
       td.colSpan = 5;
       td.style.color = 'var(--muted)';
-      td.textContent = e.error || e.message || 'Unable to load detector-node logs.';
+      td.textContent = e.error || e.message || t('loadNodeLogsFailed');
       tr.appendChild(td);
       storedLogBody.appendChild(tr);
     }

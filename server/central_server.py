@@ -120,6 +120,16 @@ def mark_client_activity(user):
     }
 
 
+def clear_user_activity(user) -> None:
+    if not user:
+        return
+    user_id = str(user.get("id"))
+    if not user_id:
+        return
+    _admin_activity.pop(user_id, None)
+    _client_activity.pop(user_id, None)
+
+
 def active_client_users():
     now = datetime.now()
     active = []
@@ -251,6 +261,11 @@ def admin_page_or_login(filename: str):
     return send_from_directory(STATIC_DIR, filename)
 
 
+def client_registration_enabled() -> bool:
+    value = database.get_setting(init_db_conn(), "client_registration_enabled", "0")
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _save_uploaded_clip(upload, source: str, event_id: str = "") -> str:
     safe_source = "".join([c for c in source if c.isalnum() or c in ("_", "-")])[:32] or "NODE"
     safe_event = "".join([c for c in event_id if c.isalnum() or c in ("_", "-")])[:32]
@@ -280,7 +295,7 @@ def serve_login():
 
 @app.route("/register.html")
 def serve_register():
-    return send_from_directory(STATIC_DIR, "register.html")
+    return redirect("/login.html")
 
 
 @app.route("/users.html")
@@ -313,6 +328,9 @@ def favicon():
 
 @app.route("/api/auth/register", methods=["POST"])
 def api_register():
+    if not client_registration_enabled():
+        return jsonify({"error": "client registration is disabled"}), 403
+
     data = request.get_json(force=True, silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -323,9 +341,14 @@ def api_register():
     if database.get_user_by_username(conn, username):
         return jsonify({"error": "username already exists"}), 400
 
-    user_id = database.insert_user(conn, username, generate_password_hash(password))
+    user_id = database.insert_user(conn, username, generate_password_hash(password), role="user")
     session["user_id"] = user_id
     return jsonify({"ok": True, "user_id": user_id})
+
+
+@app.route("/api/auth/register/status", methods=["GET"])
+def api_register_status():
+    return jsonify({"ok": True, "enabled": client_registration_enabled()})
 
 
 @app.route("/api/auth/login", methods=["POST"])
@@ -349,6 +372,8 @@ def api_login():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_logout():
+    user = current_user()
+    clear_user_activity(user)
     session.pop("user_id", None)
     return jsonify({"ok": True})
 
@@ -366,6 +391,35 @@ def api_me():
 @admin_required
 def api_users_list():
     return jsonify({"ok": True, "users": database.list_users(init_db_conn())})
+
+
+@app.route("/api/admin/settings", methods=["GET"])
+@admin_required
+def api_admin_settings_get():
+    return jsonify(
+        {
+            "ok": True,
+            "settings": {
+                "client_registration_enabled": client_registration_enabled(),
+            },
+        }
+    )
+
+
+@app.route("/api/admin/settings", methods=["POST"])
+@admin_required
+def api_admin_settings_update():
+    data = request.get_json(force=True, silent=True) or {}
+    enabled = bool(data.get("client_registration_enabled"))
+    database.set_setting(init_db_conn(), "client_registration_enabled", "1" if enabled else "0")
+    return jsonify(
+        {
+            "ok": True,
+            "settings": {
+                "client_registration_enabled": enabled,
+            },
+        }
+    )
 
 
 @app.route("/api/users/create", methods=["POST"])

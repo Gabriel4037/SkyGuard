@@ -70,6 +70,7 @@ The design separates detection execution from administrative control, allowing d
 
 ## Deployment Notes
 
+- Required Python version: `3.11.9`
 - The current implementation is intended for prototype and academic demonstration use.
 - The system currently uses Flask's built-in server and SQLite for persistence.
 - The active application flow is contained in `client/` and `server/`.

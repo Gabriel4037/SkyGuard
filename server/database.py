@@ -89,8 +89,18 @@ def init_db(db_path: str) -> sqlite3.Connection:
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS system_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+        """
+    )
+
     conn.commit()
     ensure_logs_sync_columns(conn)
+    ensure_default_settings(conn)
     create_default_admin(conn)
     return conn
 
@@ -112,6 +122,39 @@ def create_default_admin(conn):
     cur.execute(
         "INSERT INTO users (username, password_hash, created_at, role) VALUES (?, ?, ?, ?)",
         ("admin", generate_password_hash("admin"), utc_now_text(), "admin"),
+    )
+    conn.commit()
+
+
+def ensure_default_settings(conn: sqlite3.Connection) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT OR IGNORE INTO system_settings (key, value)
+        VALUES ('client_registration_enabled', '0')
+        """
+    )
+    conn.commit()
+
+
+def get_setting(conn: sqlite3.Connection, key: str, default: Optional[str] = None) -> Optional[str]:
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM system_settings WHERE key = ?", (key,))
+    row = cur.fetchone()
+    if not row:
+        return default
+    return str(row[0])
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO system_settings (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (key, str(value)),
     )
     conn.commit()
 

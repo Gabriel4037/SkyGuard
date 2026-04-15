@@ -1,4 +1,16 @@
 (function () {
+  function safeReplace(url) {
+    if (window.__auth_redirecting) return;
+    window.__auth_redirecting = true;
+    setTimeout(() => {
+      window.location.replace(url);
+    }, 120);
+  }
+
+  function wait(delayMs) {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
   async function apiFetch(url, opts = {}) {
     const cfg = Object.assign(
       {
@@ -38,18 +50,7 @@
   async function authLogin({ username, password }) {
     if (!username || !password)
       throw { error: "username and password required" };
-    console.log("authLogin:", username);
     return await apiFetch("/api/auth/login", {
-      method: "POST",
-      body: { username, password },
-    });
-  }
-
-  async function authRegister({ username, password }) {
-    if (!username || !password)
-      throw { error: "username and password required" };
-    console.log("authRegister:", username);
-    return await apiFetch("/api/auth/register", {
       method: "POST",
       body: { username, password },
     });
@@ -70,18 +71,52 @@
     return res.user || null;
   }
 
+  async function waitForSessionReady(retries = 10, delayMs = 120) {
+    for (let i = 0; i < retries; i += 1) {
+      const current = await refreshCurrentUser();
+      if (current) return current;
+      await wait(delayMs);
+    }
+    return null;
+  }
+
+  async function authLogout() {
+    return await apiFetch("/api/auth/logout", { method: "POST" });
+  }
+
+  async function requireRole(role, { redirectUrl = "/login.html" } = {}) {
+    const user = await refreshCurrentUser();
+    if (!user || (role && user.role !== role)) {
+      safeReplace(redirectUrl);
+      return null;
+    }
+    return user;
+  }
+
+  async function requireAdmin(options) {
+    return await requireRole("admin", options);
+  }
+
   window.authApi = window.authApi || {};
   window.authApi.apiFetch = apiFetch;
   window.authApi.authLogin = authLogin;
-  window.authApi.authRegister = authRegister;
   window.authApi.authMe = authMe;
   window.authApi.refreshCurrentUser = refreshCurrentUser;
+  window.authApi.waitForSessionReady = waitForSessionReady;
+  window.authApi.authLogout = authLogout;
+  window.authApi.requireRole = requireRole;
+  window.authApi.requireAdmin = requireAdmin;
+  window.authApi.safeReplace = safeReplace;
 
   window.apiFetch = apiFetch;
   window.authLogin = authLogin;
-  window.authRegister = authRegister;
   window.authMe = authMe;
   window.refreshCurrentUser = refreshCurrentUser;
+  window.waitForSessionReady = waitForSessionReady;
+  window.authLogout = authLogout;
+  window.requireRole = requireRole;
+  window.requireAdmin = requireAdmin;
+  window.safeReplace = safeReplace;
 
   window.__auth_redirecting = window.__auth_redirecting || false;
 
@@ -91,6 +126,4 @@
   window.addEventListener("unhandledrejection", function (e) {
     console.warn("Unhandled rejection:", e && e.reason);
   });
-
-  console.log("auth.js loaded");
 })();

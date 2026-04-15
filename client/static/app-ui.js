@@ -51,9 +51,6 @@
   const clipSec = document.getElementById('clipSec');
   const bgColor = document.getElementById('bgColor');
   const langSelect = document.getElementById('langSelect');
-  const btnSyncNow = document.getElementById('btnSyncNow');
-  const btnUpdateModel = document.getElementById('btnUpdateModel');
-  const nodeActionHint = document.getElementById('nodeActionHint');
   const modelStatusHint = document.getElementById('modelStatusHint');
   let currentClientSettings = null;
   let settingsSaveTimer = null;
@@ -75,10 +72,6 @@
     const dt = new Date(value);
     if (Number.isNaN(dt.getTime())) return String(value);
     return dt.toLocaleString();
-  }
-
-  function setNodeHint(text) {
-    if (nodeActionHint) nodeActionHint.textContent = text || '';
   }
 
   function setModelHint(text) {
@@ -150,11 +143,9 @@
         });
         applyClientSettings(payload.settings || nextSettings);
         emitSettingsChanged(payload.settings || nextSettings, previous);
-        setNodeHint('Client settings saved.');
       } catch (error) {
-        const message = error?.error || error?.message || 'Failed to save client settings.';
-        setNodeHint(message);
-        toast('Settings', message);
+        const message = error?.error || error?.message || t('saveSettingsFailed');
+        toast(t('settingsTitle'), message);
       }
     };
 
@@ -186,7 +177,7 @@
     }
     setModelHint(
       status?.message ||
-      'New models download automatically and are applied the next time detection becomes idle.'
+      'Auto check and auto sync.'
     );
   }
 
@@ -231,12 +222,12 @@
     langSelect.value = savedLang;
     const tradOption = langSelect.querySelector('option[value="zh-Hant"]');
     const simpOption = langSelect.querySelector('option[value="zh-Hans"]');
-    if (tradOption) tradOption.textContent = 'Traditional Chinese';
-    if (simpOption) simpOption.textContent = 'Simplified Chinese';
+    if (tradOption) tradOption.textContent = t('langTraditional');
+    if (simpOption) simpOption.textContent = t('langSimplified');
     applyI18n();
     const eventModeCap = document.querySelector('[data-i18n="eventModeCap"]');
     if (eventModeCap && savedLang === 'en') {
-      eventModeCap.textContent = '"Save while drone appears" ends after the drone is gone (short delay). Safety cap: 2 minutes.';
+      eventModeCap.textContent = 'Event mode ends after the target disappears.';
     }
   }
   bgColor.addEventListener('input', () => {
@@ -244,28 +235,6 @@
     applyBgColor(bgColor.value);
   });
   langSelect.addEventListener('change', () => setLang(langSelect.value));
-
-  async function runNodeAction(url, successPrefix) {
-    try {
-      const data = await apiJson(url, { method: 'POST' });
-      const modelLabel = data.model?.version || data.model?.filename || data.model?.path || '';
-      const suffix = data.downloaded_model || data.path || modelLabel || `${data.synced_logs ?? ''}`;
-      const msg = `${successPrefix}${suffix}`.trim();
-      setNodeHint(msg);
-      toast('Node', msg);
-      await refreshModelStatus();
-    } catch (error) {
-      const msg = error?.error || error?.message || 'This action is not available here.';
-      setNodeHint(msg);
-      toast('Node', msg);
-    }
-  }
-
-  if (btnSyncNow) btnSyncNow.addEventListener('click', () => runNodeAction('/api/node/sync', 'Sync complete: '));
-  if (btnUpdateModel) btnUpdateModel.addEventListener('click', () => runNodeAction('/api/node/model/update', 'Model update: '));
-
-  if (btnSyncNow) btnSyncNow.textContent = t('syncNow');
-  if (btnUpdateModel) btnUpdateModel.textContent = t('updateModel');
 
   [
     fpsInput,
@@ -341,7 +310,7 @@
     const tdE = document.createElement('td'); tdE.textContent = event || '-';
     const tdS = document.createElement('td'); tdS.textContent = source || '-';
     const tdL = document.createElement('td'); tdL.textContent = clipText || '-';
-    if (clipText === '-' || clipText === 'saving...' || clipText === 'off') tdL.style.color = 'var(--muted)';
+    if (clipText === '-' || clipText === t('saving') || clipText === t('clipOff')) tdL.style.color = 'var(--muted)';
 
     tr.appendChild(tdT); tr.appendChild(tdE); tr.appendChild(tdS); tr.appendChild(tdL);
     logBody.prepend(tr);

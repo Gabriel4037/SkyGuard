@@ -69,6 +69,9 @@
     .note,.error{margin-top:18px;padding:14px 16px}
     .note{color:#cfd9e8}
     .error{display:none;color:#ffc5c5;background:rgba(240,97,97,0.08);border-color:rgba(240,97,97,0.28)}
+    .meta-line{margin-top:14px}
+    .meta-line-tight{margin-top:8px}
+    .meta-strong{color:var(--text)}
     @media (max-width:1080px){
       .hero-top,.hero-bottom,.metrics,.card-grid{grid-template-columns:1fr}
     }
@@ -81,20 +84,20 @@
         <div>
           <div class="eyebrow">Central Server</div>
           <h1>SkyGuard Admin Dashboard</h1>
-          <div class="sub">Live system summary</div>
+          <div class="sub">Overview</div>
         </div>
         <div>
           <div class="status-chip">
             <span class="status-dot"></span>
-            <span id="liveStatusText">Waiting for summary...</span>
+            <span id="liveStatusText">Loading...</span>
           </div>
-          <div style="margin-top:14px" class="sub">Signed in as <strong id="adminName" style="color:var(--text)">-</strong></div>
-          <div style="margin-top:8px" class="sub">Updated <strong id="updatedAt" style="color:var(--text)">-</strong></div>
+          <div class="sub meta-line">Admin <strong id="adminName" class="meta-strong">-</strong></div>
+          <div class="sub meta-line-tight">Updated <strong id="updatedAt" class="meta-strong">-</strong></div>
         </div>
       </div>
       <div class="hero-bottom">
         <div>
-          <div class="sub">Active users</div>
+          <div class="sub">Active</div>
           <div id="activeUsernames" class="mini-list"></div>
         </div>
         <div class="actions">
@@ -107,27 +110,27 @@
       <div class="metric">
         <div class="label">Users</div>
         <div class="value" id="userCount">-</div>
-        <div class="line">Total users</div>
+        <div class="line">Total</div>
       </div>
       <div class="metric">
         <div class="label">Active Users</div>
         <div class="value" id="activeUserCount">-</div>
-        <div class="line">Live users</div>
+        <div class="line">Live</div>
       </div>
       <div class="metric">
         <div class="label">Online Cameras</div>
         <div class="value" id="activeCameraCount">-</div>
-        <div class="line">Streaming now</div>
+        <div class="line">Online</div>
       </div>
       <div class="metric">
         <div class="label">Detecting Cameras</div>
         <div class="value" id="detectingCameraCount">-</div>
-        <div class="line">Detection on</div>
+        <div class="line">Detecting</div>
       </div>
       <div class="metric">
         <div class="label">Stored Logs</div>
         <div class="value" id="logCount">-</div>
-        <div class="line">Central records</div>
+        <div class="line">Stored</div>
       </div>
     </section>
 
@@ -136,36 +139,36 @@
       <div class="card">
         <span class="tag">Accounts</span>
         <h3>User Management</h3>
-        <p>Create, edit, and remove users.</p>
+        <p>Manage users.</p>
         <a href="/users.html">Open Users</a>
       </div>
       <div class="card">
         <span class="tag">Evidence</span>
         <h3>Detection Logs</h3>
-        <p>View logs and clips.</p>
+        <p>Review logs.</p>
         <a href="/admin_logs.html">Open Logs</a>
       </div>
       <div class="card">
         <span class="tag">Monitoring</span>
         <h3>Admin Monitor</h3>
-        <p>View online camera feeds.</p>
+        <p>View cameras.</p>
         <a href="/admin_monitor.html">Open Monitor</a>
       </div>
       <div class="card">
         <span class="tag">Models</span>
         <h3>Model Center</h3>
-        <p>Release and track models.</p>
+        <p>Manage models.</p>
         <a href="/model_manager.html">Open Model Center</a>
       </div>
     </section>
 
-    <div class="note">Dashboard updates automatically.</div>
+    <div class="note">Refreshes every 4s.</div>
     <div class="error" id="errorBox"></div>
   </div>
 
   <script src="/static/auth.js"></script>
   <script>
-    const apiFetch = (window.authApi && window.authApi.apiFetch) || window.apiFetch;
+    const { apiFetch, requireAdmin, safeReplace } = window.authApi || {};
     let summaryTimer = null;
 
     function setError(message) {
@@ -201,15 +204,6 @@
       });
     }
 
-    async function ensureAdmin() {
-      const me = await apiFetch('/api/auth/me', { method: 'GET' });
-      if (!me || !me.user || me.user.role !== 'admin') {
-        window.location.replace('/login.html');
-        return null;
-      }
-      return me.user;
-    }
-
     async function loadSummary() {
       const payload = await apiFetch('/api/admin/summary', { method: 'GET' });
       const summary = payload.summary || {};
@@ -219,7 +213,7 @@
       document.getElementById('detectingCameraCount').textContent = summary.detecting_cameras ?? '-';
       document.getElementById('logCount').textContent = summary.stored_logs ?? '-';
       document.getElementById('updatedAt').textContent = formatDateTime(summary.updated_at);
-      document.getElementById('liveStatusText').textContent = 'Summary online';
+      document.getElementById('liveStatusText').textContent = 'Online';
       renderActiveUsers(summary.active_usernames || []);
       setError('');
     }
@@ -228,13 +222,13 @@
       try {
         await apiFetch('/api/auth/logout', { method: 'POST' });
       } finally {
-        window.location.replace('/login.html');
+        safeReplace('/login.html');
       }
     });
 
     (async () => {
       try {
-        const admin = await ensureAdmin();
+        const admin = await requireAdmin();
         if (!admin) return;
         document.getElementById('adminName').textContent = admin.username || 'admin';
         await loadSummary();
@@ -244,7 +238,7 @@
           });
         }, 4000);
       } catch (_) {
-        window.location.replace('/login.html');
+        safeReplace('/login.html');
       }
     })();
 

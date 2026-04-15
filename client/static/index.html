@@ -238,7 +238,7 @@
   <div style="font-weight:700;">Drone Detector</div>
   <div style="display:flex; align-items:center; gap:12px;">
     <span id="headerUser" style="font-weight:600;"></span>
-    <button id="headerLogoutBtn" style="display:none; padding:6px 10px; border-radius:6px; border:0; background:#fff; color:#0b5cff; cursor:pointer;">Logout</button>
+    <button id="headerLogoutBtn" data-i18n="logout" style="display:none; padding:6px 10px; border-radius:6px; border:0; background:#fff; color:#0b5cff; cursor:pointer;">Logout</button>
   </div>
 </div>
 
@@ -250,7 +250,7 @@
       <div class="dot"></div>
       <div>
         <h1 id="appTitle">SkyGuard</h1>
-        <div class="sub" id="appSub">A Vision-Based Drone Detection System</div>
+        <div class="sub" id="appSub" data-i18n="appSub">Drone Detection</div>
       </div>
     </div>
     
@@ -290,9 +290,7 @@
         </div>
       </div>
       <div class="card-b">
-        <div class="hint" data-i18n="dashHint">
-          Live previews of attached cameras are shown below. Start cameras first, then enable detection.
-        </div>
+        <div class="hint" data-i18n="dashHint">Start a camera, then detect.</div>
         <div class="divider"></div>
         <div id="dashCamGrid" class="grid-cams"></div>
       </div>
@@ -325,7 +323,7 @@
         </div>
         <div class="divider"></div>
         <div class="hint">
-          <span data-i18n="logsPageHint">Open the Logs page to manage stored logs and download specific footage.</span>
+          <span data-i18n="logsPageHint">Open Logs for details.</span>
         </div>
       </div>
     </div>
@@ -351,9 +349,7 @@
         </div>
       </div>
       <div class="card-b">
-        <div class="hint" data-i18n="liveHint">
-          Same camera tiles as Dashboard. If you prefer, just use Dashboard.
-        </div>
+        <div class="hint" data-i18n="liveHint">Same camera tiles.</div>
         <div class="divider"></div>
         <div id="liveCamGrid" class="grid-cams"></div>
       </div>
@@ -401,9 +397,7 @@
         </div>
       </div>
       <div class="card-b">
-        <div class="hint" data-i18n="storedLogsHint">
-          This page loads logs saved on this detector node. Use the central server admin app to manage uploaded logs and users.
-        </div>
+        <div class="hint" data-i18n="storedLogsHint">Local logs on this node.</div>
         <div class="divider"></div>
         <div style="overflow:auto; border:1px solid rgba(148,163,184,0.14); border-radius: 12px;">
           <table>
@@ -485,18 +479,18 @@
         <div>
           <label>
             <input id="autoClip" type="checkbox" checked />
-            <span data-i18n="autoSaveClip">Save a clip automatically when a drone is detected</span>
+            <span data-i18n="autoSaveClip">Auto-save clip</span>
           </label>
         </div>
         <div>
-          <label data-i18n="clipSaveMode">Clip Save Mode</label>
+          <label data-i18n="clipSaveMode">Save Mode</label>
           <select id="clipMode">
-            <option value="event" data-i18n="clipModeEvent">Save for the full detection event</option>
-            <option value="fixed" data-i18n="clipModeFixed">Save a fixed clip length</option>
+            <option value="event" data-i18n="clipModeEvent">Full event</option>
+            <option value="fixed" data-i18n="clipModeFixed">Fixed length</option>
           </select>
         </div>
         <div>
-          <label data-i18n="clipSec">Clip Length (seconds)</label>
+          <label data-i18n="clipSec">Clip Sec</label>
           <input id="clipSec" type="number" min="3" max="60" value="8" />
         </div>
       </div>
@@ -520,27 +514,13 @@
 
       <div class="divider"></div>
 
-      <div class="row" style="align-items:flex-end">
-        <div>
-          <label>Detector Node</label>
-          <div class="btns">
-            <button class="ghost" id="btnSyncNow">Sync Now</button>
-            <button class="ghost" id="btnUpdateModel">Update Model</button>
-          </div>
-          <div class="hint" id="nodeActionHint">Use these actions to sync local logs and clips, or to check for the latest released model.</div>
-          <div class="hint" id="modelStatusHint">New models download automatically and are applied the next time detection becomes idle.</div>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
       <div class="hint">
         <span data-i18n="clipBurnInHint">
-          Saved clips are recorded from the annotated canvas, so the footage includes boxes, trail, prediction curve, and timestamp.
+          Event saves until the target is gone. Fixed saves the set seconds.
         </span>
         <br/>
         <span data-i18n="eventModeCap">
-          Event-based recording stops after the drone disappears, with a short delay. Safety cap: 2 minutes.
+          Event mode ends after the target disappears.
         </span>
       </div>
     </div>
