@@ -15,6 +15,8 @@ import detector_runtime
 from client_service import DetectorNodeService
 
 
+# Client-node web application. This Flask service powers the local detector UI
+# and manages communication with the central admin server.
 STATIC_DIR = detector_runtime.resource_path("static")
 LOCAL_DB_PATH = os.environ.get("DETECTOR_NODE_DB", detector_runtime.resource_path("data/detector_node.db"))
 LOCAL_CLIPS_DIR = os.environ.get("DETECTOR_NODE_CLIPS_DIR", detector_runtime.resource_path("clips"))
@@ -32,9 +34,15 @@ DEFAULT_SETTINGS = {
     "auto_clip": True,
     "clip_mode": "event",
     "clip_sec": 8,
+    "detection_confidence_cap": 0.4,
+    "high_threat_seconds": 3,
+    "medium_confidence": 0.75,
+    "medium_box_pct": 8.0,
     "model_check_interval_seconds": 30,
 }
 
+# Runtime folders are created on startup so a clean submission can run without
+# manually preparing data/clips folders first.
 os.makedirs(LOCAL_CLIPS_DIR, exist_ok=True)
 os.makedirs(SETTINGS_PATH.parent, exist_ok=True)
 os.makedirs(CONNECTION_PATH.parent, exist_ok=True)
@@ -54,12 +62,15 @@ _db_conn = None
 _sync_lock = threading.Lock()
 _background_started = False
 _state_lock = threading.RLock()
+# Shared client service used by API handlers and the background sync thread.
 _detector_client = DetectorNodeService(
     db_conn=None,
     server_url=DEFAULT_CENTRAL_SERVER_URL,
     clips_dir=LOCAL_CLIPS_DIR,
 )
 _runtime_state = {
+    # This dictionary is protected by _state_lock because Flask requests and
+    # the background sync loop may read/write it at the same time.
     "settings": {},
     "server_ip": "",
     "server_url": DEFAULT_CENTRAL_SERVER_URL,
@@ -69,13 +80,17 @@ _runtime_state = {
     "active_detectors": set(),
     "pending_model": None,
     "last_model_check_at": None,
+    "last_policy_check_at": None,
     "last_sync_at": None,
     "last_heartbeat_at": None,
     "model_message": "",
 }
 
 
+# ---- Settings and central-server connection helpers ----
+
 def load_settings() -> dict:
+    """Load local detector settings and fill missing values with defaults."""
     settings = dict(DEFAULT_SETTINGS)
     if SETTINGS_PATH.exists():
         try:
@@ -86,10 +101,12 @@ def load_settings() -> dict:
 
 
 def save_settings(settings: dict) -> None:
+    """Persist local detector settings as JSON."""
     SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
 
 
 def normalize_server_ip(server_ip: str) -> str:
+    """Convert user-entered server text into a full central-server URL."""
     value = (server_ip or "").strip().rstrip("/")
     if not value:
         return ""
@@ -101,6 +118,7 @@ def normalize_server_ip(server_ip: str) -> str:
 
 
 def extract_server_ip(server_url: str) -> str:
+    """Convert a saved server URL back into the short IP text shown in the UI."""
     value = (server_url or "").strip().rstrip("/")
     if value.startswith("http://"):
         value = value[len("http://") :]
@@ -112,6 +130,7 @@ def extract_server_ip(server_url: str) -> str:
 
 
 def load_connection() -> dict:
+    """Load the remembered central-server address."""
     if CONNECTION_PATH.exists():
         try:
             payload = json.loads(CONNECTION_PATH.read_text(encoding="utf-8"))
@@ -128,6 +147,7 @@ def load_connection() -> dict:
 
 
 def save_connection(server_ip: str, server_url: str) -> None:
+    """Save the central-server address selected by the user."""
     CONNECTION_PATH.write_text(
         json.dumps({"server_ip": server_ip, "server_url": server_url}, indent=2),
         encoding="utf-8",
@@ -135,16 +155,19 @@ def save_connection(server_ip: str, server_url: str) -> None:
 
 
 def get_server_url() -> str:
+    """Return the active central-server URL from shared runtime state."""
     with _state_lock:
         return str(_runtime_state.get("server_url") or "").rstrip("/")
 
 
 def get_server_ip() -> str:
+    """Return the short server IP/address displayed in the UI."""
     with _state_lock:
         return str(_runtime_state.get("server_ip") or "")
 
 
 def set_server_connection(server_ip: str) -> dict:
+    """Update runtime state and disk storage with the selected central server."""
     server_url = normalize_server_ip(server_ip)
     normalized_ip = extract_server_ip(server_url)
     with _state_lock:
@@ -156,6 +179,7 @@ def set_server_connection(server_ip: str) -> dict:
 
 
 def test_server_connection(server_url: str) -> dict:
+    """Check whether the selected central server is reachable."""
     import requests
 
     target = (server_url or "").rstrip("/")
@@ -172,12 +196,22 @@ def test_server_connection(server_url: str) -> dict:
 
 
 def apply_settings(settings: dict) -> dict:
+    """Validate settings, clamp unsafe values, and apply them to the detector."""
     normalized = dict(DEFAULT_SETTINGS)
     normalized.update(settings or {})
+    # Keep browser-submitted values inside practical limits. This prevents a bad
+    # UI value from making detection too slow or too sensitive during demos.
     normalized["fps"] = max(1, min(15, int(normalized["fps"])))
-    normalized["conf"] = max(0.05, min(0.95, float(normalized["conf"])))
+    normalized["detection_confidence_cap"] = max(
+        0.05,
+        min(0.95, float(normalized.get("detection_confidence_cap", 0.4))),
+    )
+    normalized["conf"] = max(0.05, min(normalized["detection_confidence_cap"], float(normalized["conf"])))
     normalized["max_dim"] = max(320, min(1280, int(normalized["max_dim"])))
     normalized["clip_sec"] = max(3, min(60, int(normalized["clip_sec"])))
+    normalized["high_threat_seconds"] = max(1, min(120, int(normalized.get("high_threat_seconds", 3))))
+    normalized["medium_confidence"] = max(0.05, min(0.99, float(normalized.get("medium_confidence", 0.75))))
+    normalized["medium_box_pct"] = max(0.1, min(80.0, float(normalized.get("medium_box_pct", 8.0))))
     normalized["model_check_interval_seconds"] = max(10, min(3600, int(normalized["model_check_interval_seconds"])))
     normalized["auto_clip"] = bool(normalized.get("auto_clip", True))
     normalized["clip_mode"] = "fixed" if normalized.get("clip_mode") == "fixed" else "event"
@@ -193,7 +227,10 @@ def apply_settings(settings: dict) -> dict:
     return normalized
 
 
+# ---- Runtime state, model update, and policy update logic ----
+
 def init_runtime_state() -> None:
+    """Initialise settings, connection details, and model status at startup."""
     connection = load_connection()
     set_server_connection(connection["server_ip"])
     settings = apply_settings(load_settings())
@@ -208,6 +245,7 @@ def init_runtime_state() -> None:
 
 
 def current_model_status() -> dict:
+    """Build the model status payload shown in the settings modal."""
     with _state_lock:
         return {
             "current": detector_runtime.get_loaded_model_info(),
@@ -221,6 +259,7 @@ def current_model_status() -> dict:
 
 
 def refresh_monitor_status(force: bool = False) -> dict:
+    """Ask the central server if any admin is currently viewing live monitor."""
     if not get_server_url():
         return {"ok": False, "error": "CENTRAL_SERVER_URL not configured"}
 
@@ -231,6 +270,8 @@ def refresh_monitor_status(force: bool = False) -> dict:
 
     if not force and last_check:
         try:
+            # The camera stream checks this often, so reuse a very recent answer
+            # instead of sending one request per frame.
             if (datetime.now() - datetime.fromisoformat(str(last_check))).total_seconds() < 3:
                 return {"ok": True, "active": cached_active, "active_viewers": cached_viewers, "cached": True}
         except Exception:
@@ -255,17 +296,20 @@ def refresh_monitor_status(force: bool = False) -> dict:
 
 
 def set_model_message(message: str) -> None:
+    """Store a model/update message and print it for local diagnostics."""
     with _state_lock:
         _runtime_state["model_message"] = message
     print(message)
 
 
 def is_client_idle() -> bool:
+    """Return True when no camera or file detector is currently running."""
     with _state_lock:
         return len(_runtime_state["active_detectors"]) == 0
 
 
 def apply_pending_model_if_idle(force: bool = False) -> Optional[dict]:
+    """Apply a downloaded model update when it is safe to reload YOLO."""
     with _state_lock:
         pending = dict(_runtime_state["pending_model"]) if _runtime_state["pending_model"] else None
 
@@ -274,6 +318,8 @@ def apply_pending_model_if_idle(force: bool = False) -> Optional[dict]:
     if not force and not is_client_idle():
         return None
 
+    # Reloading a YOLO model can briefly block detection. Waiting until idle
+    # avoids interrupting an active camera or file-detection session.
     info = detector_runtime.reload_model(pending["path"], version=pending.get("version"))
     with _state_lock:
         _runtime_state["pending_model"] = None
@@ -282,6 +328,7 @@ def apply_pending_model_if_idle(force: bool = False) -> Optional[dict]:
 
 
 def check_for_model_update(force: bool = False) -> dict:
+    """Download a newer central model release and apply it when the client is idle."""
     if not get_server_url():
         return {"ok": False, "error": "CENTRAL_SERVER_URL not configured"}
 
@@ -314,6 +361,8 @@ def check_for_model_update(force: bool = False) -> dict:
     with _state_lock:
         _runtime_state["pending_model"] = pending
 
+    # If no detector is running, apply immediately; otherwise keep the file
+    # downloaded and let apply_pending_model_if_idle handle it later.
     if is_client_idle():
         applied = apply_pending_model_if_idle(force=True)
         return {"ok": True, "updated": True, "applied": True, "model": applied}
@@ -322,7 +371,45 @@ def check_for_model_update(force: bool = False) -> dict:
     return {"ok": True, "updated": True, "applied": False, "model": pending}
 
 
+def check_for_threat_policy_update(force: bool = False) -> dict:
+    """Pull central threat policy values and merge them into local settings."""
+    if not get_server_url():
+        return {"ok": False, "error": "CENTRAL_SERVER_URL not configured"}
+
+    try:
+        if not _detector_client.login():
+            return {"ok": False, "error": "central login failed"}
+        response = _detector_client.session.get(f"{get_server_url()}/api/threat-policy", timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+        policy = payload.get("policy") or {}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+    with _state_lock:
+        current = dict(_runtime_state["settings"])
+    next_settings = dict(current)
+    next_settings.update(
+        {
+            "medium_confidence": policy.get("medium_confidence", current.get("medium_confidence", 0.75)),
+            "medium_box_pct": policy.get("medium_box_pct", current.get("medium_box_pct", 8.0)),
+            "high_threat_seconds": policy.get("high_zone_seconds", current.get("high_threat_seconds", 3)),
+            "detection_confidence_cap": policy.get(
+                "detection_confidence_cap",
+                current.get("detection_confidence_cap", 0.4),
+            ),
+        }
+    )
+    updated = apply_settings(next_settings)
+    with _state_lock:
+        _runtime_state["last_policy_check_at"] = datetime.now().isoformat(timespec="seconds")
+    return {"ok": True, "policy": policy, "settings": updated}
+
+
+# ---- Local database and authentication helpers ----
+
 def init_db_conn():
+    """Create the local SQLite connection on first use."""
     global _db_conn
     if _db_conn is None:
         print("Initializing detector-client DB:", LOCAL_DB_PATH)
@@ -332,6 +419,7 @@ def init_db_conn():
 
 
 def current_user():
+    """Load the current local user from the Flask session."""
     uid = session.get("user_id")
     if not uid:
         return None
@@ -339,11 +427,14 @@ def current_user():
 
 
 def sync_local_user_record(username: str, password: str, role: str) -> int:
+    """Mirror the authenticated central user into the local node database."""
     conn = init_db_conn()
     user = database.get_user_by_username(conn, username)
     from werkzeug.security import generate_password_hash
 
     if user:
+        # The central server is the source of truth. The local user record is
+        # just a cached session identity for the node UI.
         if user.get("role") != role:
             database.update_user(conn, user["id"], username, role)
         database.set_user_password_hash(conn, user["id"], generate_password_hash(password))
@@ -353,6 +444,7 @@ def sync_local_user_record(username: str, password: str, role: str) -> int:
 
 
 def node_login_required(handler):
+    """Require a local node login before running a route handler."""
     from functools import wraps
 
     @wraps(handler)
@@ -365,6 +457,7 @@ def node_login_required(handler):
 
 
 def node_admin_required(handler):
+    """Require a local admin role before running a route handler."""
     from functools import wraps
 
     @wraps(handler)
@@ -380,12 +473,14 @@ def node_admin_required(handler):
 
 
 def configure_sync_client(username: str, password: str):
+    """Store credentials used by background sync requests."""
     _detector_client.username = username
     _detector_client.password = password
     _detector_client.server_url = get_server_url()
 
 
 def try_central_login(username: str, password: str):
+    """Attempt login against the configured central server."""
     import requests
 
     response = requests.post(
@@ -399,6 +494,7 @@ def try_central_login(username: str, password: str):
 
 
 def get_central_registration_status() -> dict:
+    """Ask the central server whether public client registration is open."""
     import requests
 
     response = requests.get(
@@ -411,6 +507,7 @@ def get_central_registration_status() -> dict:
 
 
 def ensure_central_login() -> bool:
+    """Refresh the central-server session if credentials are available."""
     if not _detector_client.server_url:
         return False
     try:
@@ -420,6 +517,7 @@ def ensure_central_login() -> bool:
 
 
 def send_client_heartbeat() -> dict:
+    """Tell the central server this client node is still active."""
     if not get_server_url():
         return {"ok": False, "error": "CENTRAL_SERVER_URL not configured"}
     try:
@@ -432,7 +530,10 @@ def send_client_heartbeat() -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+# ---- Background synchronisation loop ----
+
 def run_sync_once() -> dict:
+    """Synchronise pending local logs with the central server once."""
     if not get_server_url():
         return {"ok": False, "error": "CENTRAL_SERVER_URL not configured"}
 
@@ -449,6 +550,7 @@ def run_sync_once() -> dict:
 
 
 def background_sync_loop():
+    """Background task for log sync, heartbeat, model checks, and policy checks."""
     while True:
         try:
             if _detector_client.server_url and _detector_client.username and _detector_client.password:
@@ -457,12 +559,16 @@ def background_sync_loop():
                     settings = dict(_runtime_state["settings"])
                     last_sync_at = _runtime_state["last_sync_at"]
                     last_model_check_at = _runtime_state["last_model_check_at"]
+                    last_policy_check_at = _runtime_state["last_policy_check_at"]
 
                 last_sync_ts = datetime.fromisoformat(last_sync_at).timestamp() if last_sync_at else 0
                 last_check_ts = datetime.fromisoformat(last_model_check_at).timestamp() if last_model_check_at else 0
+                last_policy_ts = datetime.fromisoformat(last_policy_check_at).timestamp() if last_policy_check_at else 0
 
                 last_heartbeat_at = _runtime_state["last_heartbeat_at"]
 
+                # Each task has its own timer so a failed sync does not stop
+                # heartbeat, model checks, or monitor checks from continuing.
                 if now - last_sync_ts >= SYNC_INTERVAL_SECONDS:
                     result = run_sync_once()
                     if not result.get("ok"):
@@ -482,6 +588,11 @@ def background_sync_loop():
                     if not result.get("ok"):
                         print("Background model check failed:", result.get("error"))
 
+                if now - last_policy_ts >= settings["model_check_interval_seconds"]:
+                    result = check_for_threat_policy_update(force=False)
+                    if not result.get("ok"):
+                        print("Background threat policy check failed:", result.get("error"))
+
                 monitor_result = refresh_monitor_status(force=False)
                 if not monitor_result.get("ok"):
                     print("Background monitor status check failed:", monitor_result.get("error"))
@@ -493,6 +604,7 @@ def background_sync_loop():
 
 
 def start_background_sync():
+    """Start the background sync loop once for the client process."""
     global _background_started
     if _background_started:
         return
@@ -501,8 +613,11 @@ def start_background_sync():
     thread.start()
 
 
+# ---- Authentication and setup APIs ----
+
 @app.route("/api/auth/login", methods=["POST"])
 def api_auth_login():
+    """Log in through the central server and create a local node session."""
     data = request.get_json(force=True, silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -525,11 +640,13 @@ def api_auth_login():
     session["user_id"] = local_id
     configure_sync_client(username, password)
     send_client_heartbeat()
+    check_for_threat_policy_update(force=True)
     return jsonify({"ok": True, "user": {"id": local_id, "username": username, "role": remote_user.get("role", "user")}})
 
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_auth_logout():
+    """Log out locally and best-effort log out from the central server."""
     if get_server_url() and _detector_client.session:
         try:
             _detector_client.session.post(f"{get_server_url()}/api/auth/logout", json={}, timeout=10)
@@ -546,6 +663,7 @@ def api_auth_logout():
 
 @app.route("/api/auth/me", methods=["GET"])
 def api_auth_me():
+    """Return the current local user session, if one exists."""
     user = current_user()
     if not user:
         return jsonify({"user": None})
@@ -554,6 +672,7 @@ def api_auth_me():
 
 @app.route("/api/auth/register", methods=["POST"])
 def api_auth_register():
+    """Register a client user through the central server."""
     data = request.get_json(force=True, silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -584,11 +703,13 @@ def api_auth_register():
     remote_user_id = sync_local_user_record(username, password, "user")
     session["user_id"] = remote_user_id
     configure_sync_client(username, password)
+    check_for_threat_policy_update(force=True)
     return jsonify({"ok": True, "user_id": remote_user_id})
 
 
 @app.route("/api/auth/register/status", methods=["GET"])
 def api_auth_register_status():
+    """Proxy the central registration status for the local register page."""
     if not get_server_url():
         return jsonify({"ok": False, "enabled": False, "error": "central server not configured"}), 503
     try:
@@ -597,9 +718,12 @@ def api_auth_register_status():
         return jsonify({"ok": False, "enabled": False, "error": "central server unavailable"}), 503
 
 
+# ---- Client settings, model status, and detector APIs ----
+
 @app.route("/api/client/settings", methods=["GET"])
 @node_login_required
 def api_client_settings_get():
+    """Return the current local detector settings."""
     with _state_lock:
         settings = dict(_runtime_state["settings"])
     return jsonify({"ok": True, "settings": settings})
@@ -607,11 +731,13 @@ def api_client_settings_get():
 
 @app.route("/api/client/connection", methods=["GET"])
 def api_client_connection_get():
+    """Return the currently configured central-server address."""
     return jsonify({"ok": True, "server_ip": get_server_ip(), "server_url": get_server_url()})
 
 
 @app.route("/api/client/connection", methods=["POST"])
 def api_client_connection_set():
+    """Save and test a new central-server address."""
     payload = request.get_json(force=True, silent=True) or {}
     server_ip = str(payload.get("server_ip") or "").strip()
     if not server_ip:
@@ -625,6 +751,7 @@ def api_client_connection_set():
 
 @app.route("/api/client/connection/test", methods=["POST"])
 def api_client_connection_test():
+    """Test a central-server address without saving it."""
     payload = request.get_json(force=True, silent=True) or {}
     server_ip = str(payload.get("server_ip") or "").strip()
     server_url = normalize_server_ip(server_ip)
@@ -637,7 +764,18 @@ def api_client_connection_test():
 @app.route("/api/client/settings", methods=["POST"])
 @node_login_required
 def api_client_settings_update():
+    """Update local detector settings while preserving admin policy fields."""
     payload = request.get_json(force=True, silent=True) or {}
+    with _state_lock:
+        current = dict(_runtime_state["settings"])
+    for admin_key in (
+        "detection_confidence_cap",
+        "medium_confidence",
+        "medium_box_pct",
+        "high_threat_seconds",
+    ):
+        if admin_key in current:
+            payload[admin_key] = current[admin_key]
     updated = apply_settings(payload)
     return jsonify({"ok": True, "settings": updated})
 
@@ -645,12 +783,14 @@ def api_client_settings_update():
 @app.route("/api/client/model/status", methods=["GET"])
 @node_login_required
 def api_client_model_status():
+    """Return model update status for the client settings modal."""
     return jsonify({"ok": True, "status": current_model_status()})
 
 
 @app.route("/api/client/monitor-status", methods=["GET"])
 @node_login_required
 def api_client_monitor_status():
+    """Return whether central live monitor streaming is currently needed."""
     result = refresh_monitor_status(force=False)
     if not result.get("ok"):
         return jsonify(result), 503
@@ -660,6 +800,7 @@ def api_client_monitor_status():
 @app.route("/api/client/detector_state", methods=["POST"])
 @node_login_required
 def api_client_detector_state():
+    """Track whether a detector is active so model reloads can wait."""
     payload = request.get_json(force=True, silent=True) or {}
     source = str(payload.get("source") or "").strip() or "unknown"
     is_detecting = bool(payload.get("is_detecting"))
@@ -678,6 +819,7 @@ def api_client_detector_state():
 @app.route("/api/drone/detect", methods=["POST"])
 @node_login_required
 def api_detect():
+    """Decode one browser frame and run YOLO detection on it."""
     data = request.get_json(force=True, silent=True) or {}
     frame_b64 = data.get("frame")
     if not frame_b64:
@@ -699,6 +841,7 @@ def api_detect():
 @app.route("/api/logs", methods=["GET"])
 @node_login_required
 def api_logs_list():
+    """Return local detection logs for the client log page."""
     limit = int(request.args.get("limit", 500))
     return jsonify(database.list_logs(init_db_conn(), limit=limit))
 
@@ -706,6 +849,7 @@ def api_logs_list():
 @app.route("/api/logs/create", methods=["POST"])
 @node_login_required
 def api_logs_create():
+    """Create a pending local log row for a detection event."""
     data = request.get_json(force=True, silent=True) or {}
     new_id = database.create_log(
         init_db_conn(),
@@ -721,6 +865,7 @@ def api_logs_create():
 @app.route("/api/logs/update", methods=["POST"])
 @node_login_required
 def api_logs_update():
+    """Update a local log row after event time or clip status changes."""
     data = request.get_json(force=True, silent=True) or {}
     database.update_log(
         init_db_conn(),
@@ -736,6 +881,7 @@ def api_logs_update():
 @app.route("/api/logs/delete", methods=["POST"])
 @node_admin_required
 def api_logs_delete():
+    """Delete a local log row from the node database."""
     data = request.get_json(force=True, silent=True) or {}
     database.delete_log(init_db_conn(), int(data.get("id")))
     return jsonify({"ok": True})
@@ -744,6 +890,7 @@ def api_logs_delete():
 @app.route("/api/clip/save", methods=["POST"])
 @node_login_required
 def api_clip_save():
+    """Save a locally recorded event clip from the browser."""
     if "file" not in request.files:
         return jsonify({"error": "missing file"}), 400
 
@@ -763,6 +910,7 @@ def api_clip_save():
 @app.route("/api/clip/download", methods=["GET"])
 @node_login_required
 def api_clip_download():
+    """Download a locally stored event clip."""
     filename = secure_filename(request.args.get("file", "") or "")
     if not filename:
         return jsonify({"error": "missing file"}), 400
@@ -775,16 +923,19 @@ def api_clip_download():
 @app.route("/api/node/sync", methods=["POST"])
 @node_login_required
 def api_node_sync():
+    """Manually trigger log sync, model check, and policy refresh."""
     result = run_sync_once()
     if result.get("ok"):
         model_result = check_for_model_update(force=True)
         result["model"] = model_result
+        result["threat_policy"] = check_for_threat_policy_update(force=True)
     return jsonify(result)
 
 
 @app.route("/api/node/model/update", methods=["POST"])
 @node_login_required
 def api_node_model_update():
+    """Manually check for a newer central model release."""
     result = check_for_model_update(force=True)
     error_text = str(result.get("error", "")).lower()
     if result.get("ok"):
@@ -798,9 +949,12 @@ def api_node_model_update():
     return jsonify(result), status_code
 
 
+# ---- Camera registration and monitor streaming APIs ----
+
 @app.route("/api/camera/register", methods=["POST"])
 @node_login_required
 def api_camera_register():
+    """Register a browser camera locally and with the central server."""
     data = request.get_json(force=True, silent=True) or {}
     camera_name = (data.get("camera_name") or "").strip()
     camera_id = (data.get("camera_id") or "").strip()
@@ -831,6 +985,7 @@ def api_camera_register():
 @app.route("/api/camera/list", methods=["GET"])
 @node_login_required
 def api_camera_list():
+    """Return cameras registered by the current local user."""
     user = current_user() or {}
     cameras = database.get_user_cameras(init_db_conn(), int(user["id"]))
     return jsonify({"ok": True, "cameras": cameras})
@@ -839,6 +994,7 @@ def api_camera_list():
 @app.route("/api/camera/status", methods=["POST"])
 @node_login_required
 def api_camera_status():
+    """Forward camera detecting/idle status to the central server."""
     payload = request.get_json(force=True, silent=True) or {}
     camera_id = str(payload.get("camera_id") or "").strip()
     if not camera_id:
@@ -865,6 +1021,7 @@ def api_camera_status():
 @app.route("/api/camera/stream", methods=["POST"])
 @node_login_required
 def api_camera_stream():
+    """Forward one monitor frame to the central server when monitor is active."""
     if "file" not in request.files:
         return jsonify({"error": "missing file"}), 400
 
@@ -900,27 +1057,34 @@ def api_camera_stream():
     return jsonify({"ok": True, "local_only": True})
 
 
+# ---- Static page routes and app entry point ----
+
 @app.route("/")
 def index():
+    """Serve the client dashboard page."""
     return app.send_static_file("index.html")
 
 
 @app.route("/index.html")
 def serve_index():
+    """Serve the explicit client dashboard URL."""
     return send_from_directory(STATIC_DIR, "index.html")
 
 
 @app.route("/login.html")
 def serve_login():
+    """Serve the client login page."""
     return send_from_directory(STATIC_DIR, "login.html")
 
 
 @app.route("/register.html")
 def serve_register():
+    """Serve the client registration page."""
     return send_from_directory(STATIC_DIR, "register.html")
 
 
 def run_detector_node(host: str = "127.0.0.1", port: int = 5050, debug: bool = False):
+    """Initialise the node state and start the local Flask app."""
     init_db_conn()
     init_runtime_state()
     start_background_sync()

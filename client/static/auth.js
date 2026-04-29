@@ -1,4 +1,6 @@
 (function () {
+  // Authentication helper shared by the client login/register pages and app UI.
+  // Use a redirect guard so repeated failed auth checks do not bounce the page.
   function safeReplace(url) {
     if (window.__auth_redirecting) return;
     window.__auth_redirecting = true;
@@ -7,10 +9,12 @@
     }, 120);
   }
 
+  // Small delay helper used to let Flask sessions settle before redirect checks.
   function wait(delayMs) {
     return new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
+  // Send JSON requests with credentials and convert error responses into objects.
   async function apiFetch(url, opts = {}) {
     const cfg = Object.assign(
       {

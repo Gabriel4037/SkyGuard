@@ -1,6 +1,9 @@
+  // Main browser-side detection workflow. It draws overlays, records clips,
+  // sends frames to Flask, and writes detection events into local logs.
   // =======================
   // Video overlay + annotation recording
   // =======================
+  // Match the canvas overlay size to the visible video element.
   function fitOverlayToVideo(videoEl, overlayEl) {
     if (!videoEl || !overlayEl) return { rect: { width: 1, height: 1 }, dpr: 1 };
     const rect = videoEl.getBoundingClientRect();
@@ -27,6 +30,7 @@
     return { rect: { width: cssWidth, height: cssHeight }, dpr };
   }
 
+  // Keep overlay dimensions correct when video metadata or layout changes.
   function installOverlaySync(videoEl, overlayEl) {
     if (!videoEl || !overlayEl || videoEl.__overlaySyncInstalled) return;
     videoEl.__overlaySyncInstalled = true;
@@ -46,6 +50,7 @@
     }
   }
 
+  // Choose a browser-supported recording format for event clips.
   function pickMimeType() {
     if (typeof MediaRecorder === 'undefined') return '';
     const candidates = [
@@ -139,6 +144,170 @@
     }
   }
 
+  // Normalize a drawn detection zone so later geometry math is easier.
+  function normalizeZone(zone) {
+    const src = zone || {};
+    const xPct = Math.max(0, Math.min(95, Number(src.x ?? 25)));
+    const yPct = Math.max(0, Math.min(95, Number(src.y ?? 25)));
+    const wPct = Math.max(5, Math.min(100 - xPct, Number(src.w ?? 50)));
+    const hPct = Math.max(5, Math.min(100 - yPct, Number(src.h ?? 50)));
+    return {
+      enabled: src.enabled !== false,
+      x: xPct,
+      y: yPct,
+      w: wPct,
+      h: hPct
+    };
+  }
+
+  // Convert the saved relative zone into pixel coordinates for the video.
+  function zoneToPixels(zone, videoWidth, videoHeight) {
+    const z = normalizeZone(zone);
+    if (!z.enabled || !videoWidth || !videoHeight) return null;
+
+    return {
+      x1: (z.x / 100) * videoWidth,
+      y1: (z.y / 100) * videoHeight,
+      x2: ((z.x + z.w) / 100) * videoWidth,
+      y2: ((z.y + z.h) / 100) * videoHeight,
+      enabled: true
+    };
+  }
+
+  // Check if a detection box overlaps the selected warning zone.
+  function detectionIntersectsZone(det, zone) {
+    if (!det || !zone) return false;
+    const cx = ((det.x1 || 0) + (det.x2 || 0)) / 2;
+    const cy = ((det.y1 || 0) + (det.y2 || 0)) / 2;
+    const centerInside = cx >= zone.x1 && cx <= zone.x2 && cy >= zone.y1 && cy <= zone.y2;
+    const overlaps = (det.x1 || 0) < zone.x2 && (det.x2 || 0) > zone.x1 && (det.y1 || 0) < zone.y2 && (det.y2 || 0) > zone.y1;
+    return centerInside || overlaps;
+  }
+
+  // Add intrusion and threat labels to detections before drawing/logging.
+  function annotateThreats(detections, zone, videoWidth, videoHeight, zoneEnteredAt, inEvent) {
+    const now = Date.now();
+    const inZone = !!zone && detections.some(det => detectionIntersectsZone(det, zone));
+    const nextZoneEnteredAt = inZone ? (zoneEnteredAt || now) : null;
+    const dwellMs = nextZoneEnteredAt ? now - nextZoneEnteredAt : 0;
+
+    const settings = (typeof window.getClientSettings === 'function') ? window.getClientSettings() : {};
+    const highAfterMs = Math.max(1, Math.min(30, Number(settings.high_threat_seconds ?? 3))) * 1000;
+    const mediumConfidence = Math.max(0.05, Math.min(0.99, Number(settings.medium_confidence ?? 0.75)));
+    const mediumAreaRatio = Math.max(0.001, Math.min(0.8, Number(settings.medium_box_pct ?? 8) / 100));
+    const frameArea = Math.max(1, videoWidth * videoHeight);
+    const maxConfidence = detections.reduce((max, det) => Math.max(max, Number(det.confidence || 0)), 0);
+    const maxAreaPct = detections.reduce((max, det) => {
+      const areaPct = (((det.width || 0) * (det.height || 0)) / frameArea) * 100;
+      return Math.max(max, areaPct);
+    }, 0);
+
+    let eventThreat = 'Low';
+    const annotated = detections.map((det) => {
+      const confidence = Number(det.confidence || 0);
+      const areaRatio = Math.max(0, ((det.width || 0) * (det.height || 0)) / frameArea);
+      const isIntrusion = detectionIntersectsZone(det, zone);
+      let threat = 'Low';
+      if (isIntrusion && dwellMs >= highAfterMs) {
+        threat = 'High';
+      } else if (isIntrusion || inEvent || confidence >= mediumConfidence || areaRatio >= mediumAreaRatio) {
+        threat = 'Medium';
+      }
+      if (threat === 'High') eventThreat = 'High';
+      else if (threat === 'Medium' && eventThreat !== 'High') eventThreat = 'Medium';
+      return {
+        ...det,
+        in_protected_zone: isIntrusion,
+        threat_level: threat
+      };
+    });
+
+    return {
+      detections: annotated,
+      intrusion: inZone,
+      threat: eventThreat,
+      zoneEnteredAt: nextZoneEnteredAt,
+      dwellMs,
+      maxConfidence,
+      maxAreaPct
+    };
+  }
+
+  function formatSeconds(ms) {
+    return `${(Math.max(0, ms || 0) / 1000).toFixed(1)}s`;
+  }
+
+  function formatEventText(eventId, intrusion, threat, details = {}) {
+    const eventType = intrusion ? 'Intrusion' : 'Detection';
+    const zoneText = details.zoneEnabled === false ? 'Zone: off' : (intrusion ? 'Zone: entered' : 'Zone: clear');
+    const confText = `Detection conf: ${Math.round((details.confidence || 0) * 100)}%`;
+    const sizeText = `Box size: ${(details.areaPct || 0).toFixed(1)}%`;
+    const dwellText = intrusion ? `Zone time: ${formatSeconds(details.dwellMs || 0)}` : null;
+    return [`DRONE #${eventId}`, `Type: ${eventType}`, `Threat: ${threat}`, zoneText, confText, sizeText, dwellText].filter(Boolean).join(' | ');
+  }
+
+  function persistentClipText(value) {
+    const text = String(value || '').trim();
+    if (!text || text === t('saving') || text.toLowerCase() === 'saving...') return '-';
+    return text;
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function videoDisplayGeometry(videoEl, overlayEl) {
+    const rect = overlayEl.getBoundingClientRect();
+    const vw = videoEl.videoWidth || 0;
+    const vh = videoEl.videoHeight || 0;
+    if (!vw || !vh || !rect.width || !rect.height) return null;
+    const scale = Math.min(rect.width / vw, rect.height / vh);
+    const dispW = vw * scale;
+    const dispH = vh * scale;
+    return {
+      rect,
+      vw,
+      vh,
+      scale,
+      padX: (rect.width - dispW) / 2,
+      padY: (rect.height - dispH) / 2
+    };
+  }
+
+  function pointerToVideoPoint(event, videoEl, overlayEl) {
+    const g = videoDisplayGeometry(videoEl, overlayEl);
+    if (!g) return null;
+    const cssX = event.clientX - g.rect.left;
+    const cssY = event.clientY - g.rect.top;
+    const x = (cssX - g.padX) / g.scale;
+    const y = (cssY - g.padY) / g.scale;
+    return { x: clamp(x, 0, g.vw), y: clamp(y, 0, g.vh), geometry: g };
+  }
+
+  function zoneHitMode(point, zonePx, scale) {
+    if (!point || !zonePx) return null;
+    const edge = Math.max(10, 12 / Math.max(scale || 1, 0.1));
+    const inX = point.x >= zonePx.x1 && point.x <= zonePx.x2;
+    const inY = point.y >= zonePx.y1 && point.y <= zonePx.y2;
+    if (!inX || !inY) return null;
+
+    const nearL = Math.abs(point.x - zonePx.x1) <= edge;
+    const nearR = Math.abs(point.x - zonePx.x2) <= edge;
+    const nearT = Math.abs(point.y - zonePx.y1) <= edge;
+    const nearB = Math.abs(point.y - zonePx.y2) <= edge;
+
+    if (nearL && nearT) return 'resize-nw';
+    if (nearR && nearT) return 'resize-ne';
+    if (nearL && nearB) return 'resize-sw';
+    if (nearR && nearB) return 'resize-se';
+    if (nearL) return 'resize-w';
+    if (nearR) return 'resize-e';
+    if (nearT) return 'resize-n';
+    if (nearB) return 'resize-s';
+    return 'move';
+  }
+
+  // Draw detection boxes, zone overlays, labels, and optional recording canvas.
   function drawOverlay(videoEl, overlayEl, recordEl, detections, extras) {
     const octx = overlayEl.getContext('2d');
     const { rect, dpr } = fitOverlayToVideo(videoEl, overlayEl);
@@ -173,6 +342,36 @@
         ctx.drawImage(rawEl, 0, 0, ctx.canvas.width, ctx.canvas.height);
       }
 
+      if (extras?.protectedZone) {
+        const z1 = mapFn(extras.protectedZone.x1, extras.protectedZone.y1);
+        const z2 = mapFn(extras.protectedZone.x2, extras.protectedZone.y2);
+        const zx = z1.x;
+        const zy = z1.y;
+        const zw = z2.x - z1.x;
+        const zh = z2.y - z1.y;
+        const active = !!extras.intrusion;
+        ctx.save();
+        ctx.lineWidth = Math.max(2, 2 * mul);
+        ctx.setLineDash([8 * mul, 6 * mul]);
+        ctx.strokeStyle = active ? 'rgba(239,68,68,0.96)' : 'rgba(245,158,11,0.88)';
+        ctx.fillStyle = active ? 'rgba(239,68,68,0.10)' : 'rgba(245,158,11,0.08)';
+        ctx.fillRect(zx, zy, zw, zh);
+        ctx.strokeRect(zx, zy, zw, zh);
+        ctx.setLineDash([]);
+        const zoneTag = active ? `${t('intrusion')} - ${extras.threat || t('threatMedium')}` : t('protectedZone');
+        ctx.font = `${Math.max(12, 12 * mul)}px ui-sans-serif`;
+        const pad = 6 * mul;
+        const th = Math.max(16 * mul, 16);
+        const tw = ctx.measureText(zoneTag).width;
+        const tagX = Math.max(0, Math.min(zx + pad, ctx.canvas.width - tw - 2 * pad));
+        const tagY = Math.max(0, Math.min(zy + pad, ctx.canvas.height - th - 2 * mul));
+        ctx.fillStyle = 'rgba(2,6,23,0.78)';
+        ctx.fillRect(tagX - pad, tagY - 2*mul, tw + 2*pad, th + 2*mul);
+        ctx.fillStyle = active ? 'rgba(254,226,226,0.98)' : 'rgba(254,243,199,0.98)';
+        ctx.fillText(zoneTag, tagX, tagY);
+        ctx.restore();
+      }
+
       // trail dots
       if (extras?.trail?.length) {
         for (let i = 0; i < extras.trail.length; i++) {
@@ -201,12 +400,20 @@
         const conf = det.confidence ?? 0;
         const label = det.label ?? 'obj';
 
-        ctx.strokeStyle = 'rgba(34,197,94,0.95)';
-        ctx.fillStyle = 'rgba(34,197,94,0.15)';
+        const threat = det.threat_level || 'Low';
+        const intrusion = !!det.in_protected_zone;
+        const color = threat === 'High'
+          ? { stroke: 'rgba(239,68,68,0.98)', fill: 'rgba(239,68,68,0.16)' }
+          : threat === 'Medium'
+            ? { stroke: 'rgba(245,158,11,0.98)', fill: 'rgba(245,158,11,0.15)' }
+            : { stroke: 'rgba(34,197,94,0.95)', fill: 'rgba(34,197,94,0.15)' };
+
+        ctx.strokeStyle = color.stroke;
+        ctx.fillStyle = color.fill;
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
 
-        const tag = `${label} ${(conf*100).toFixed(0)}%`;
+        const tag = `${intrusion ? t('intrusion') : label} ${(conf*100).toFixed(0)}% ${threat}`;
         const pad = 6 * mul;
         const tw = ctx.measureText(tag).width;
         const th = Math.max(16 * mul, 16);
@@ -308,6 +515,8 @@
       this.latestDetections = [];
       this.latestExtras = { predCurve: null, trail: [] };
       this.latestDetectMs = null;
+      this.zone = this.loadZone();
+      this.zoneDrag = null;
 
       this.eventMaxMs = 2 * 60 * 1000;
       this.eventCapTimer = null;
@@ -325,6 +534,10 @@
       this.recentRow = null; // dashboard recent row
       this.storedLogId = null; // server log id if created
       this.alertedThisEvent = false;
+      this.alertedIntrusionThisEvent = false;
+      this.zoneEnteredAt = null;
+      this.eventThreat = 'Low';
+      this.eventIntrusion = false;
       this.handleResize = () => fitOverlayToVideo(this.video, this.overlay);
       this.handleSettingsChanged = (event) => {
         if (!this.isDetecting) return;
@@ -333,12 +546,159 @@
         if (nextFps !== prevFps) this.restartTickLoop();
       };
       installOverlaySync(this.video, this.overlay);
+      this.installZoneEditor();
       this.renderLoop = () => {
         if (!this.isDetecting) return;
-        fitOverlayToVideo(this.video, this.overlay);
-        drawOverlay(this.video, this.overlay, this.recordEl, this.latestDetections, this.latestExtras);
+        this.drawCurrentOverlay();
         this.renderFrameId = window.requestAnimationFrame(this.renderLoop);
       };
+    }
+
+    zoneStorageKey() {
+      return `skyguard.protectedZone.${this.name}`;
+    }
+
+    loadZone() {
+      try {
+        const raw = localStorage.getItem(this.zoneStorageKey());
+        if (raw) return normalizeZone(JSON.parse(raw));
+      } catch (_) {}
+      return normalizeZone({ enabled: true, x: 25, y: 25, w: 50, h: 50 });
+    }
+
+    saveZone() {
+      try {
+        localStorage.setItem(this.zoneStorageKey(), JSON.stringify(normalizeZone(this.zone)));
+      } catch (_) {}
+    }
+
+    setZoneEnabled(enabled) {
+      this.zone = normalizeZone({ ...this.zone, enabled: !!enabled });
+      this.zoneEnteredAt = null;
+      this.saveZone();
+      this.latestExtras = this.buildOverlayExtras({
+        intrusion: false,
+        threat: this.latestExtras?.threat || 'Low'
+      });
+      this.drawCurrentOverlay();
+    }
+
+    isZoneEnabled() {
+      return normalizeZone(this.zone).enabled;
+    }
+
+    getZonePixels() {
+      const vw = this.video.videoWidth || 0;
+      const vh = this.video.videoHeight || 0;
+      return zoneToPixels(this.zone, vw, vh);
+    }
+
+    buildOverlayExtras(extra = {}) {
+      const zone = this.getZonePixels();
+      return {
+        predCurve: this.predCurve,
+        trail: this.trail.slice().reverse(),
+        protectedZone: zone,
+        intrusion: false,
+        threat: 'Low',
+        ...extra
+      };
+    }
+
+    drawCurrentOverlay() {
+      fitOverlayToVideo(this.video, this.overlay);
+      drawOverlay(this.video, this.overlay, this.recordEl, this.latestDetections, this.latestExtras);
+    }
+
+    drawIdleZone() {
+      if (this.isDetecting) return;
+      fitOverlayToVideo(this.video, this.overlay);
+      this.latestDetections = [];
+      this.latestExtras = this.buildOverlayExtras();
+      drawOverlay(this.video, this.overlay, this.recordEl, [], this.latestExtras);
+    }
+
+    installZoneEditor() {
+      if (!this.overlay || this.overlay.__zoneEditorInstalled) return;
+      this.overlay.__zoneEditorInstalled = true;
+      const eventTarget = this.overlay.parentElement || this.overlay;
+      eventTarget.style.touchAction = 'none';
+
+      const startDrag = (event) => {
+        const point = pointerToVideoPoint(event, this.video, this.overlay);
+        const zonePx = this.getZonePixels();
+        const mode = zoneHitMode(point, zonePx, point?.geometry?.scale);
+        if (!point || !mode) return;
+
+        event.preventDefault();
+        eventTarget.setPointerCapture?.(event.pointerId);
+        this.zoneDrag = {
+          mode,
+          pointerId: event.pointerId,
+          startPoint: point,
+          startZone: normalizeZone(this.zone)
+        };
+      };
+
+      const updateDrag = (event) => {
+        const point = pointerToVideoPoint(event, this.video, this.overlay);
+        if (!point) return;
+
+        if (!this.zoneDrag) {
+          const mode = zoneHitMode(point, this.getZonePixels(), point.geometry.scale);
+          eventTarget.style.cursor = mode ? (mode === 'move' ? 'move' : `${mode.replace('resize-', '')}-resize`) : 'default';
+          return;
+        }
+        if (event.pointerId !== this.zoneDrag.pointerId) return;
+
+        event.preventDefault();
+        const start = this.zoneDrag.startZone;
+        const dxPct = ((point.x - this.zoneDrag.startPoint.x) / point.geometry.vw) * 100;
+        const dyPct = ((point.y - this.zoneDrag.startPoint.y) / point.geometry.vh) * 100;
+        let x = start.x;
+        let y = start.y;
+        let w = start.w;
+        let h = start.h;
+        const minSize = 5;
+
+        if (this.zoneDrag.mode === 'move') {
+          x = clamp(start.x + dxPct, 0, 100 - start.w);
+          y = clamp(start.y + dyPct, 0, 100 - start.h);
+        } else {
+          if (this.zoneDrag.mode.includes('e')) w = clamp(start.w + dxPct, minSize, 100 - start.x);
+          if (this.zoneDrag.mode.includes('s')) h = clamp(start.h + dyPct, minSize, 100 - start.y);
+          if (this.zoneDrag.mode.includes('w')) {
+            x = clamp(start.x + dxPct, 0, start.x + start.w - minSize);
+            w = clamp((start.x + start.w) - x, minSize, 100 - x);
+          }
+          if (this.zoneDrag.mode.includes('n')) {
+            y = clamp(start.y + dyPct, 0, start.y + start.h - minSize);
+            h = clamp((start.y + start.h) - y, minSize, 100 - y);
+          }
+        }
+
+        this.zone = normalizeZone({ enabled: this.isZoneEnabled(), x, y, w, h });
+        this.latestExtras = this.buildOverlayExtras({
+          intrusion: !!this.latestExtras?.intrusion,
+          threat: this.latestExtras?.threat || 'Low'
+        });
+        this.drawCurrentOverlay();
+      };
+
+      const endDrag = (event) => {
+        if (!this.zoneDrag || event.pointerId !== this.zoneDrag.pointerId) return;
+        event.preventDefault();
+        eventTarget.releasePointerCapture?.(event.pointerId);
+        this.zoneDrag = null;
+        this.saveZone();
+      };
+
+      eventTarget.addEventListener('pointerdown', startDrag);
+      eventTarget.addEventListener('pointermove', updateDrag);
+      eventTarget.addEventListener('pointerup', endDrag);
+      eventTarget.addEventListener('pointercancel', endDrag);
+      this.video.addEventListener('loadedmetadata', () => this.drawIdleZone());
+      this.video.addEventListener('loadeddata', () => this.drawIdleZone());
     }
 
     getTickInterval() {
@@ -386,6 +746,10 @@
       this.recentRow = null;
       this.storedLogId = null;
       this.alertedThisEvent = false;
+      this.alertedIntrusionThisEvent = false;
+      this.zoneEnteredAt = null;
+      this.eventThreat = 'Low';
+      this.eventIntrusion = false;
 
       this.clearMotion();
       window.removeEventListener('resize', this.handleResize);
@@ -393,6 +757,7 @@
 
       const ctx = this.overlay.getContext('2d');
       ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+      this.drawIdleZone();
       setStatus(t('idle'), true);
       reportDetectorState(this.name, false);
     }
@@ -400,10 +765,12 @@
     finalizeActiveEventTime() {
       if (!this.inEvent || !this.eventStartTs) return;
 
+      // The final event time is only known when detection stops or the object
+      // disappears, so the row created at event start is updated here.
       const start = this.eventStartTs;
       const end = Date.now();
       const timeText = `${fmtHHMMSS(start)} - ${fmtHHMMSS(end)}`;
-      const eventText = this.recentRow?.tdE?.textContent || `DRONE #${this.eventId}`;
+      const eventText = this.recentRow?.tdE?.textContent || formatEventText(this.eventId, this.eventIntrusion, this.eventThreat);
 
       if (this.recentRow?.tdT) this.recentRow.tdT.textContent = timeText;
 
@@ -421,7 +788,7 @@
             time: timeText,
             event: eventText,
             source: this.name,
-            clip: this.pendingClipText || (autoClip.checked ? t('saving') : t('clipOff'))
+            clip: persistentClipText(this.pendingClipText || (autoClip.checked ? '-' : t('clipOff')))
           })
         }).catch(() => {});
       }
@@ -442,7 +809,7 @@
     }
 
     async createStoredLogSkeleton(timeText, eventText) {
-      // Best-effort create; backend must exist
+      // Create the log early, then update the clip field after recording ends.
       try {
         const r = await fetch(LOGS_CREATE_ENDPOINT, {
           method:'POST',
@@ -451,13 +818,12 @@
             time: timeText,
             event: eventText,
             source: this.name,
-            clip: t('saving')
+            clip: persistentClipText(this.pendingClipText || (autoClip.checked ? '-' : t('clipOff')))
           })
         });
         if (!r.ok) throw new Error('bad');
         const js = await r.json();
         this.storedLogId = js.id ?? null;
-        triggerNodeSync();
       } catch (_) {
         this.storedLogId = null;
       }
@@ -474,7 +840,7 @@
             time: timeText,
             event: eventText,
             source: this.name,
-            clip: clipText
+            clip: persistentClipText(clipText)
           })
         });
       } catch (_) {}
@@ -482,6 +848,8 @@
 
     async finalizeClipStatus(clipText, clipContext = null) {
       this.pendingClipText = clipText;
+      // Keep the dashboard row and the stored SQLite log in sync after the
+      // MediaRecorder has either saved a clip or failed.
       const context = clipContext || this.activeClipContext || {
         recentRow: this.recentRow,
         storedLogId: this.storedLogId,
@@ -503,12 +871,14 @@
     startRecordingForEvent() {
       if (!autoClip.checked) {
         this.pendingClipText = t('clipOff');
+        this.finalizeClipStatus(this.pendingClipText);
         return;
       }
 
       const stream = this.getRecordStream();
       if (!stream || typeof MediaRecorder === 'undefined') {
         this.pendingClipText = 'Clip unsupported';
+        this.finalizeClipStatus(this.pendingClipText);
         return;
       }
 
@@ -518,6 +888,7 @@
         rec = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       } catch (_) {
         this.pendingClipText = 'Clip recorder error';
+        this.finalizeClipStatus(this.pendingClipText);
         return;
       }
 
@@ -532,6 +903,7 @@
       };
       this.activeClipContext = clipContext;
 
+      // Save chunks in memory and upload one WebM file when recording stops.
       const recChunks = [];
       rec.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) recChunks.push(ev.data); };
 
@@ -560,6 +932,8 @@
         const seconds = Math.max(3, Math.min(60, Number(clipSec.value) || 8));
         setTimeout(() => { try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch(_){} }, seconds * 1000);
       } else {
+        // Event mode normally stops when the target disappears, but this cap
+        // prevents endless recording if the object stays on screen.
         if (this.eventCapTimer) clearTimeout(this.eventCapTimer);
         this.eventCapTimer = setTimeout(() => { try { if (this.recorder && this.recorder.state !== 'inactive') this.recorder.stop(); } catch(_){} }, this.eventMaxMs);
       }
@@ -673,8 +1047,14 @@
         this.latestDetectMs = Math.round(performance.now() - t0);
         lastMs.textContent = String(this.latestDetectMs);
 
-        const dets = js.detections || [];
+        let dets = js.detections || [];
         const hasDrone = (js.detected && dets.length > 0);
+        const videoWidth = this.video.videoWidth || js.orig_size?.width || 0;
+        const videoHeight = this.video.videoHeight || js.orig_size?.height || 0;
+        const protectedZone = zoneToPixels(this.zone, videoWidth, videoHeight);
+        const threatInfo = annotateThreats(dets, protectedZone, videoWidth, videoHeight, this.zoneEnteredAt, this.inEvent);
+        dets = threatInfo.detections;
+        this.zoneEnteredAt = threatInfo.zoneEnteredAt;
 
         if (hasDrone) {
           const top = dets.slice().sort((a,b) => (b.confidence||0) - (a.confidence||0))[0];
@@ -685,7 +1065,11 @@
         }
 
         this.latestDetections = dets;
-        this.latestExtras = { predCurve: this.predCurve, trail: this.trail.slice().reverse() };
+        this.latestExtras = this.buildOverlayExtras({
+          protectedZone,
+          intrusion: threatInfo.intrusion,
+          threat: threatInfo.threat
+        });
 
         // EVENT START
         if (hasDrone && !this.inEvent) {
@@ -693,17 +1077,27 @@
           this.eventId += 1;
           this.eventStartTs = Date.now();
           this.alertedThisEvent = false;
+          this.alertedIntrusionThisEvent = false;
+          this.eventThreat = threatInfo.threat;
+          this.eventIntrusion = threatInfo.intrusion;
 
           // Alert immediately
           if (!this.alertedThisEvent) {
-            toast(t('alertTitle'), `${t('alertBody')} ${this.name}`);
+            const title = threatInfo.intrusion ? t('alertIntrusionTitle') : t('alertTitle');
+            toast(title, `${t('alertBody')} ${this.name} - ${this.eventThreat}`);
             this.alertedThisEvent = true;
+            this.alertedIntrusionThisEvent = threatInfo.intrusion;
           }
 
           // Create dashboard recent row immediately
           const start = this.eventStartTs;
           const timeText = `${fmtHHMMSS(start)} - ...`;
-          const eventText = `DRONE #${this.eventId}`;
+          const eventText = formatEventText(this.eventId, this.eventIntrusion, this.eventThreat, {
+            zoneEnabled: this.isZoneEnabled(),
+            confidence: threatInfo.maxConfidence,
+            areaPct: threatInfo.maxAreaPct,
+            dwellMs: threatInfo.dwellMs
+          });
           this.recentRow = addRecentLogRow({
             timeText,
             event: eventText,
@@ -716,6 +1110,30 @@
 
           // start recording
           this.startRecordingForEvent();
+        }
+
+        if (hasDrone && this.inEvent) {
+          const prevText = this.recentRow?.tdE?.textContent || '';
+          this.eventIntrusion = this.eventIntrusion || threatInfo.intrusion;
+          if (threatInfo.threat === 'High' || (threatInfo.threat === 'Medium' && this.eventThreat !== 'High')) {
+            this.eventThreat = threatInfo.threat;
+          }
+
+          const nextText = formatEventText(this.eventId, this.eventIntrusion, this.eventThreat, {
+            zoneEnabled: this.isZoneEnabled(),
+            confidence: threatInfo.maxConfidence,
+            areaPct: threatInfo.maxAreaPct,
+            dwellMs: threatInfo.dwellMs
+          });
+          if (this.recentRow?.tdE && prevText !== nextText) {
+            this.recentRow.tdE.textContent = nextText;
+            this.finalizeActiveEventTime();
+          }
+
+          if (threatInfo.intrusion && !this.alertedIntrusionThisEvent) {
+            toast(t('alertIntrusionTitle'), `${t('alertBody')} ${this.name} - ${this.eventThreat}`);
+            this.alertedIntrusionThisEvent = true;
+          }
         }
 
         // EVENT END
@@ -738,15 +1156,20 @@
                   body: JSON.stringify({
                     id: this.storedLogId,
                     time: timeText,
-                    event: this.recentRow?.tdE?.textContent || `DRONE #${this.eventId}`,
+                    event: this.recentRow?.tdE?.textContent || formatEventText(this.eventId, this.eventIntrusion, this.eventThreat),
                     source: this.name,
-                    clip: this.pendingClipText || (autoClip.checked ? t('saving') : t('clipOff'))
+                    clip: persistentClipText(this.pendingClipText || (autoClip.checked ? '-' : t('clipOff')))
                   })
                 });
               } catch (_) {}
             }
 
             this.finalizeActiveEventTime();
+
+            const clipDone = !!this.pendingClipText && this.pendingClipText !== t('saving');
+            if (!autoClip.checked || clipDone) {
+              triggerNodeSync();
+            }
 
             // stop recording only for event mode
             this.stopRecordingForEventEnd();

@@ -8,7 +8,10 @@ import webview
 import client_app
 
 
+# Desktop launcher for the detector node. It starts the local Flask service
+# first, then opens the node login page inside a pywebview window.
 def find_free_port():
+    """Ask the OS for an unused port so multiple tools can run safely."""
     sock = socket.socket()
     sock.bind(("", 0))
     port = sock.getsockname()[1]
@@ -17,6 +20,7 @@ def find_free_port():
 
 
 def wait_for_port(host, port, timeout=5.0):
+    """Wait until the local detector-node server is ready."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
@@ -28,15 +32,18 @@ def wait_for_port(host, port, timeout=5.0):
 
 
 def run_server(port):
+    """Run the client Flask app on localhost for the desktop wrapper."""
     client_app.run_detector_node(host="127.0.0.1", port=port, debug=False)
 
 
 if __name__ == "__main__":
+    # The client node does not need a fixed port because only its own webview
+    # connects to it. A free port avoids conflicts during demonstrations.
     port = find_free_port()
     thread = threading.Thread(target=run_server, args=(port,), daemon=True)
     thread.start()
 
-    if not wait_for_port("127.0.0.1", port, timeout=10.0):
+    if not wait_for_port("127.0.0.1", port, timeout=30.0):
         print("Detector node did not start in time.")
         sys.exit(1)
 

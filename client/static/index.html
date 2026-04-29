@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- Client node main interface: camera setup, live detection, file detection, logs, and settings. -->
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -95,7 +96,7 @@
       overflow:hidden;
     }
     video{ position:relative; z-index:1; width:100%; height:100%; object-fit:contain; display:block; background: rgba(2,6,23,0.35); transform:translateZ(0); }
-    canvas.overlay{ position:absolute; inset:0; z-index:2; pointer-events:none; transform:translateZ(0); }
+    canvas.overlay{ position:absolute; inset:0; z-index:2; pointer-events:none; transform:translateZ(0); touch-action:none; }
     canvas.record{ display:none; }
 
     .grid-cams{
@@ -229,6 +230,8 @@
       font-weight:700;
     }
     .linkbtn:hover{ border-color: rgba(148,163,184,0.35); }
+    .checkline{ display:flex; align-items:center; gap:8px; min-height:40px; }
+    .checkline label{ margin:0; color:var(--text); }
 
   </style>
 </head>
@@ -470,6 +473,15 @@
         <div>
           <label data-i18n="lastSync">Last Sync</label>
           <input id="lastSyncAt" type="text" value="-" readonly />
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <div>
+          <label data-i18n="highThreatSeconds">High Threat Sec</label>
+          <input id="highThreatSeconds" type="number" min="1" max="120" value="3" />
         </div>
       </div>
 

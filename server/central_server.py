@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from datetime import datetime
 from functools import wraps
@@ -11,11 +12,21 @@ from werkzeug.utils import secure_filename
 
 import database
 
+# File and folder paths are kept relative to the server folder so the app can
+# run from source code or from a packaged build without changing paths.
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = os.environ.get("CENTRAL_DB_PATH", str(BASE_DIR / "data" / "central_server.db"))
 STATIC_DIR = str(BASE_DIR / "static")
 CLIPS_DIR = os.environ.get("CENTRAL_CLIPS_DIR", str(BASE_DIR / "clips"))
 MODELS_DIR = os.environ.get("CENTRAL_MODELS_DIR", str(BASE_DIR / "models"))
+
+# Default values used by the client nodes to classify medium/high threat events.
+DEFAULT_THREAT_POLICY = {
+    "detection_confidence_cap": 0.4,
+    "medium_confidence": 0.75,
+    "medium_box_pct": 8.0,
+    "high_zone_seconds": 3,
+}
 
 os.makedirs(CLIPS_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
@@ -23,6 +34,7 @@ os.makedirs(MODELS_DIR, exist_ok=True)
 app = Flask(__name__, static_folder=STATIC_DIR)
 CORS(app, supports_credentials=True)
 
+# The demo runs on a local network, so the cookie is HTTP-only but not HTTPS-only.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "central-server-secret")
 app.config.update(
     SESSION_COOKIE_NAME="central_session",
@@ -38,13 +50,15 @@ _admin_activity = {}
 _client_activity = {}
 _camera_activity = {}
 _monitor_viewers = {}
-FRAME_LIVE_WINDOW_SECONDS = int(os.environ.get("FRAME_LIVE_WINDOW_SECONDS", "5"))
 ACTIVE_USER_WINDOW_SECONDS = int(os.environ.get("ACTIVE_USER_WINDOW_SECONDS", "300"))
 MONITOR_ACTIVE_WINDOW_SECONDS = int(os.environ.get("MONITOR_ACTIVE_WINDOW_SECONDS", "10"))
 CAMERA_ACTIVE_WINDOW_SECONDS = int(os.environ.get("CAMERA_ACTIVE_WINDOW_SECONDS", "10"))
 
 
+# ---- Database and authentication helpers ----
+
 def init_db_conn():
+    """Create the central database connection on first use."""
     global _db_conn
     if _db_conn is None:
         print("Initializing central DB:", DB_PATH)
@@ -53,10 +67,12 @@ def init_db_conn():
 
 
 def init_server_state():
+    """Initialise central server state before the Flask app starts."""
     init_db_conn()
 
 
 def login_required(func):
+    """Require any logged-in user before allowing an API call."""
     @wraps(func)
     def decorated(*args, **kwargs):
         if not session.get("user_id"):
@@ -68,6 +84,7 @@ def login_required(func):
 
 
 def admin_required(func):
+    """Require an administrator session before allowing an API call."""
     @wraps(func)
     def decorated(*args, **kwargs):
         uid = session.get("user_id")
@@ -82,7 +99,10 @@ def admin_required(func):
     return decorated
 
 
+# ---- In-memory activity tracking ----
+
 def current_user():
+    """Return the currently logged-in central user, if any."""
     uid = session.get("user_id")
     if not uid:
         return None
@@ -90,6 +110,7 @@ def current_user():
 
 
 def current_admin_user():
+    """Return the current user only when the user is an admin."""
     user = current_user()
     if not user or user.get("role") != "admin":
         return None
@@ -97,6 +118,7 @@ def current_admin_user():
 
 
 def mark_user_activity(user):
+    """Record recent admin activity for the dashboard summary."""
     if not user:
         return
     if user.get("role") != "admin":
@@ -110,6 +132,7 @@ def mark_user_activity(user):
 
 
 def mark_client_activity(user):
+    """Record recent client-node activity for the dashboard summary."""
     if not user:
         return
     _client_activity[str(user["id"])] = {
@@ -121,6 +144,7 @@ def mark_client_activity(user):
 
 
 def clear_user_activity(user) -> None:
+    """Remove a user from in-memory activity lists after logout."""
     if not user:
         return
     user_id = str(user.get("id"))
@@ -131,6 +155,7 @@ def clear_user_activity(user) -> None:
 
 
 def active_client_users():
+    """Return client users seen recently by heartbeat/camera updates."""
     now = datetime.now()
     active = []
     stale_keys = []
@@ -150,6 +175,7 @@ def active_client_users():
 
 
 def active_admin_users():
+    """Return admin users seen recently by admin page/API activity."""
     now = datetime.now()
     active = []
     stale_keys = []
@@ -169,6 +195,7 @@ def active_admin_users():
 
 
 def active_users_summary(conn):
+    """Combine active admin, client, and camera users into one summary list."""
     user_map = {}
     for item in active_admin_users():
         user_map[int(item["id"])] = {
@@ -201,6 +228,7 @@ def active_users_summary(conn):
 
 
 def mark_camera_activity(camera_id: str, user_id=None, is_detecting: bool = False) -> None:
+    """Record the latest heartbeat/status update for one camera."""
     if not camera_id:
         return
     _camera_activity[str(camera_id)] = {
@@ -212,6 +240,7 @@ def mark_camera_activity(camera_id: str, user_id=None, is_detecting: bool = Fals
 
 
 def active_camera_entries():
+    """Return camera activity entries that are still inside the live window."""
     now = datetime.now()
     active_entries = []
     stale_keys = []
@@ -231,12 +260,14 @@ def active_camera_entries():
 
 
 def mark_monitor_viewer(viewer_id: str) -> None:
+    """Record that one admin monitor browser is currently open."""
     if not viewer_id:
         return
     _monitor_viewers[viewer_id] = datetime.now().isoformat()
 
 
 def active_monitor_viewers() -> int:
+    """Count active admin monitor pages based on recent browser heartbeats."""
     now = datetime.now()
     stale_keys = []
     count = 0
@@ -256,17 +287,49 @@ def active_monitor_viewers() -> int:
 
 
 def admin_page_or_login(filename: str):
+    """Serve an admin page or redirect unauthenticated users to login."""
     if not current_admin_user():
         return redirect("/login.html")
     return send_from_directory(STATIC_DIR, filename)
 
 
+# ---- Shared policy and file helpers ----
+
 def client_registration_enabled() -> bool:
+    """Read whether clients are allowed to register themselves."""
     value = database.get_setting(init_db_conn(), "client_registration_enabled", "0")
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
+def normalize_threat_policy(data: dict) -> dict:
+    """Validate threat policy values before saving or returning them."""
+    policy = dict(DEFAULT_THREAT_POLICY)
+    policy.update(data or {})
+    policy["detection_confidence_cap"] = max(0.05, min(0.95, float(policy["detection_confidence_cap"])))
+    policy["medium_confidence"] = max(0.05, min(0.99, float(policy["medium_confidence"])))
+    policy["medium_box_pct"] = max(0.1, min(80.0, float(policy["medium_box_pct"])))
+    policy["high_zone_seconds"] = max(1, min(120, int(policy["high_zone_seconds"])))
+    return policy
+
+
+def get_threat_policy() -> dict:
+    """Load the saved threat policy, falling back to defaults if needed."""
+    raw = database.get_setting(init_db_conn(), "threat_policy", "")
+    try:
+        return normalize_threat_policy(json.loads(raw) if raw else {})
+    except Exception:
+        return dict(DEFAULT_THREAT_POLICY)
+
+
+def set_threat_policy(data: dict) -> dict:
+    """Validate and save the central threat policy."""
+    policy = normalize_threat_policy(data)
+    database.set_setting(init_db_conn(), "threat_policy", json.dumps(policy))
+    return policy
+
+
 def _save_uploaded_clip(upload, source: str, event_id: str = "") -> str:
+    """Save an uploaded event clip with a clean timestamped filename."""
     safe_source = "".join([c for c in source if c.isalnum() or c in ("_", "-")])[:32] or "NODE"
     safe_event = "".join([c for c in event_id if c.isalnum() or c in ("_", "-")])[:32]
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -278,56 +341,70 @@ def _save_uploaded_clip(upload, source: str, event_id: str = "") -> str:
     return filename
 
 
+# ---- Page routes ----
+
 @app.route("/")
 def index():
+    """Serve the central dashboard at the root URL."""
     return admin_page_or_login("admin_dashboard.html")
 
 
 @app.route("/index.html")
 def serve_index():
+    """Serve the central dashboard at /index.html."""
     return admin_page_or_login("admin_dashboard.html")
 
 
 @app.route("/login.html")
 def serve_login():
+    """Serve the central admin login page."""
     return send_from_directory(STATIC_DIR, "login.html")
 
 
 @app.route("/register.html")
 def serve_register():
+    """Redirect unused central registration page requests to login."""
     return redirect("/login.html")
 
 
 @app.route("/users.html")
 def serve_users():
+    """Serve the admin user-management page."""
     return admin_page_or_login("users.html")
 
 
 @app.route("/admin_monitor.html")
 def serve_admin_monitor():
+    """Serve the live central camera monitor page."""
     return admin_page_or_login("admin_monitor.html")
 
 
 @app.route("/model_manager.html")
 def serve_model_manager():
+    """Serve the admin model and threat-policy page."""
     return admin_page_or_login("model_manager.html")
 
 
 @app.route("/admin_logs.html")
 def serve_admin_logs():
+    """Serve the central detection log review page."""
     return admin_page_or_login("admin_logs.html")
 
 
 @app.route("/favicon.ico")
 def favicon():
+    """Return favicon when present, otherwise no content."""
     ico_path = os.path.join(STATIC_DIR, "favicon.ico")
     if os.path.exists(ico_path):
         return send_from_directory(STATIC_DIR, "favicon.ico")
     return ("", 204)
 
 
+# ---- Authentication and user management APIs ----
+
 @app.route("/api/auth/register", methods=["POST"])
 def api_register():
+    """Create a normal client user when registration is enabled."""
     if not client_registration_enabled():
         return jsonify({"error": "client registration is disabled"}), 403
 
@@ -348,11 +425,13 @@ def api_register():
 
 @app.route("/api/auth/register/status", methods=["GET"])
 def api_register_status():
+    """Return whether client self-registration is enabled."""
     return jsonify({"ok": True, "enabled": client_registration_enabled()})
 
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
+    """Authenticate a central user and create a Flask session."""
     data = request.get_json(force=True, silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -372,6 +451,7 @@ def api_login():
 
 @app.route("/api/auth/logout", methods=["POST"])
 def api_logout():
+    """Clear the current central session."""
     user = current_user()
     clear_user_activity(user)
     session.pop("user_id", None)
@@ -380,6 +460,7 @@ def api_logout():
 
 @app.route("/api/auth/me", methods=["GET"])
 def api_me():
+    """Return the current central user session, if any."""
     user = current_user()
     if not user:
         return jsonify({"user": None})
@@ -390,12 +471,14 @@ def api_me():
 @app.route("/api/users", methods=["GET"])
 @admin_required
 def api_users_list():
+    """Return all users for the admin user-management page."""
     return jsonify({"ok": True, "users": database.list_users(init_db_conn())})
 
 
 @app.route("/api/admin/settings", methods=["GET"])
 @admin_required
 def api_admin_settings_get():
+    """Return central admin settings used by the user page."""
     return jsonify(
         {
             "ok": True,
@@ -409,6 +492,7 @@ def api_admin_settings_get():
 @app.route("/api/admin/settings", methods=["POST"])
 @admin_required
 def api_admin_settings_update():
+    """Update central admin settings from the user page."""
     data = request.get_json(force=True, silent=True) or {}
     enabled = bool(data.get("client_registration_enabled"))
     database.set_setting(init_db_conn(), "client_registration_enabled", "1" if enabled else "0")
@@ -425,6 +509,7 @@ def api_admin_settings_update():
 @app.route("/api/users/create", methods=["POST"])
 @admin_required
 def api_users_create():
+    """Create a user account from the central admin page."""
     data = request.get_json(force=True, silent=True) or {}
     username = (data.get("username") or "").strip()
     password = data.get("password") or ""
@@ -443,6 +528,7 @@ def api_users_create():
 @app.route("/api/users/update", methods=["POST"])
 @admin_required
 def api_users_update():
+    """Update username or role for an existing central user."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         user_id = int(data.get("id"))
@@ -460,6 +546,7 @@ def api_users_update():
 @app.route("/api/users/set_password", methods=["POST"])
 @admin_required
 def api_users_set_password():
+    """Set a new password for an existing central user."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         user_id = int(data.get("id"))
@@ -476,6 +563,7 @@ def api_users_set_password():
 @app.route("/api/users/delete", methods=["POST"])
 @admin_required
 def api_users_delete():
+    """Delete a central user account."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         user_id = int(data.get("id"))
@@ -485,9 +573,12 @@ def api_users_delete():
     return jsonify({"ok": True})
 
 
+# ---- Log and clip APIs used by the admin pages ----
+
 @app.route("/api/logs", methods=["GET"])
 @admin_required
 def api_logs():
+    """Return central event logs for the admin log page."""
     try:
         limit = int(request.args.get("limit", 500))
     except Exception:
@@ -495,24 +586,10 @@ def api_logs():
     return jsonify(database.list_logs(init_db_conn(), limit=limit))
 
 
-@app.route("/api/logs/create", methods=["POST"])
-@login_required
-def api_logs_create():
-    data = request.get_json(force=True, silent=True) or {}
-    new_id = database.create_log(
-        init_db_conn(),
-        str(data.get("time", "") or ""),
-        str(data.get("event", "") or ""),
-        str(data.get("source", "") or ""),
-        str(data.get("clip", "") or ""),
-        sync_status="synced",
-    )
-    return jsonify({"ok": True, "id": new_id})
-
-
 @app.route("/api/logs/update", methods=["POST"])
 @admin_required
 def api_logs_update():
+    """Update one central event log row."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         log_id = int(data.get("id"))
@@ -532,6 +609,7 @@ def api_logs_update():
 @app.route("/api/logs/delete", methods=["POST"])
 @admin_required
 def api_logs_delete():
+    """Delete one central event log row."""
     data = request.get_json(force=True, silent=True) or {}
     try:
         log_id = int(data.get("id"))
@@ -544,6 +622,7 @@ def api_logs_delete():
 @app.route("/api/clip/download", methods=["GET"])
 @admin_required
 def api_clip_download():
+    """Download an uploaded event clip from the central server."""
     filename = secure_filename(request.args.get("file", "") or "")
     if not filename:
         return jsonify({"error": "missing file"}), 400
@@ -556,6 +635,7 @@ def api_clip_download():
 @app.route("/api/clip/view", methods=["GET"])
 @admin_required
 def api_clip_view():
+    """Stream an uploaded event clip for browser playback."""
     filename = secure_filename(request.args.get("file", "") or "")
     if not filename:
         return jsonify({"error": "missing file"}), 400
@@ -565,25 +645,12 @@ def api_clip_view():
     return send_from_directory(CLIPS_DIR, filename, as_attachment=False, mimetype="video/webm")
 
 
-@app.route("/api/clip/save", methods=["POST"])
-@login_required
-def api_clip_save():
-    if "file" not in request.files:
-        return jsonify({"ok": False, "error": "missing file"}), 400
-
-    upload = request.files["file"]
-    if not upload or upload.filename == "":
-        return jsonify({"ok": False, "error": "empty file"}), 400
-
-    source = request.form.get("source", "NODE")
-    event_id = request.form.get("event_id", "")
-    filename = _save_uploaded_clip(upload, source, event_id)
-    return jsonify({"ok": True, "filename": filename})
-
+# ---- Camera registration and live monitor APIs ----
 
 @app.route("/api/camera/register", methods=["POST"])
 @login_required
 def api_camera_register():
+    """Register a client camera with the central server."""
     data = request.get_json(force=True, silent=True) or {}
     camera_name = (data.get("camera_name") or "").strip()
     camera_id = (data.get("camera_id") or "").strip()
@@ -601,20 +668,16 @@ def api_camera_register():
         return jsonify({"error": "registration failed"}), 500
 
 
-@app.route("/api/camera/list", methods=["GET"])
-@login_required
-def api_camera_list():
-    user_id = session.get("user_id")
-    return jsonify({"ok": True, "cameras": database.get_user_cameras(init_db_conn(), user_id)})
-
-
 @app.route("/api/admin/cameras", methods=["GET"])
 @admin_required
 def api_admin_cameras():
+    """Return cameras that are currently live for the monitor page."""
     cameras = database.get_all_active_cameras(init_db_conn())
     live_lookup = {item["camera_id"]: item for item in active_camera_entries()}
     live_cameras = []
     for camera in cameras:
+        # Only show cameras that have sent a recent status/frame update. This
+        # keeps the monitor page focused on currently available client streams.
         live = live_lookup.get(str(camera["internal_id"]))
         if not live:
             continue
@@ -628,6 +691,7 @@ def api_admin_cameras():
 @app.route("/api/admin/summary", methods=["GET"])
 @admin_required
 def api_admin_summary():
+    """Return dashboard counts for users, logs, and cameras."""
     conn = init_db_conn()
     cameras = database.get_all_active_cameras(conn)
     live_lookup = {item["camera_id"]: item for item in active_camera_entries()}
@@ -658,6 +722,7 @@ def api_admin_summary():
 @app.route("/api/admin/monitor/heartbeat", methods=["POST"])
 @admin_required
 def api_admin_monitor_heartbeat():
+    """Record that an admin monitor page is actively open."""
     payload = request.get_json(force=True, silent=True) or {}
     viewer_id = str(payload.get("viewer_id") or "").strip()
     if not viewer_id:
@@ -669,6 +734,7 @@ def api_admin_monitor_heartbeat():
 @app.route("/api/admin/monitor/status", methods=["GET"])
 @login_required
 def api_admin_monitor_status():
+    """Tell clients whether any admin monitor page is active."""
     viewers = active_monitor_viewers()
     return jsonify({"ok": True, "active": viewers > 0, "active_viewers": viewers})
 
@@ -676,6 +742,7 @@ def api_admin_monitor_status():
 @app.route("/api/node/heartbeat", methods=["POST"])
 @login_required
 def api_node_heartbeat():
+    """Record that a client node is still connected."""
     user = current_user()
     if user and user.get("role") != "admin":
         mark_client_activity(user)
@@ -685,6 +752,7 @@ def api_node_heartbeat():
 @app.route("/api/camera/status", methods=["POST"])
 @login_required
 def api_camera_status():
+    """Receive live detecting/idle status for one client camera."""
     payload = request.get_json(force=True, silent=True) or {}
     camera_id = str(payload.get("camera_id") or "").strip()
     if not camera_id:
@@ -700,6 +768,7 @@ def api_camera_status():
 @app.route("/api/camera/stream", methods=["POST"])
 @login_required
 def api_camera_stream():
+    """Receive the latest monitor frame for one client camera."""
     if "file" not in request.files:
         return jsonify({"error": "missing file"}), 400
     upload = request.files["file"]
@@ -710,6 +779,8 @@ def api_camera_stream():
     if not camera_id:
         return jsonify({"error": "camera_id required"}), 400
 
+    # Frames are kept in memory because the monitor only needs the latest image.
+    # Saving every JPEG would create unnecessary files during long demonstrations.
     _frame_cache[f"frame_{camera_id}"] = {
         "data": upload.read(),
         "user_id": session.get("user_id"),
@@ -727,6 +798,7 @@ def api_camera_stream():
 @app.route("/api/admin/camera/frame", methods=["GET"])
 @admin_required
 def api_admin_camera_frame():
+    """Return the latest cached frame for a monitor camera card."""
     camera_id = request.args.get("camera_id", "")
     if not camera_id:
         return jsonify({"error": "camera_id required"}), 400
@@ -736,14 +808,15 @@ def api_admin_camera_frame():
     return send_file(io.BytesIO(frame_info["data"]), mimetype="image/jpeg")
 
 
+# ---- Client-node sync API ----
+
 @app.route("/api/node/upload_event", methods=["POST"])
 @login_required
 def api_node_upload_event():
+    """Receive a client-node event log and optional clip during synchronisation."""
     payload_json = request.form.get("payload", "") or ""
     if not payload_json:
         return jsonify({"ok": False, "error": "missing payload"}), 400
-
-    import json
 
     try:
         payload = json.loads(payload_json)
@@ -753,9 +826,30 @@ def api_node_upload_event():
     clip_name = str(payload.get("clip", "") or "")
     clip_file = request.files.get("file")
     if clip_file and clip_file.filename:
+        # When a client sends the clip file, replace the local placeholder text
+        # with the server-side filename used by the admin log viewer.
         clip_name = f"Saved: {_save_uploaded_clip(clip_file, payload.get('source', 'NODE'), str(payload.get('local_id', '')))}"
 
     conn = init_db_conn()
+    central_log_id = payload.get("central_log_id")
+    try:
+        # central_log_id lets a client update a previously synced row instead
+        # of creating duplicate central log entries.
+        central_log_id = int(central_log_id) if central_log_id not in (None, "", 0, "0") else None
+    except Exception:
+        central_log_id = None
+
+    if central_log_id and database.get_log_by_id(conn, central_log_id):
+        database.update_log(
+            conn,
+            central_log_id,
+            str(payload.get("time", "") or ""),
+            str(payload.get("event", "") or ""),
+            str(payload.get("source", "") or ""),
+            clip_name,
+        )
+        return jsonify({"ok": True, "id": central_log_id, "updated": True})
+
     new_id = database.create_log(
         conn,
         str(payload.get("time", "") or ""),
@@ -764,16 +858,13 @@ def api_node_upload_event():
         clip_name,
         sync_status="synced",
     )
-    return jsonify({"ok": True, "id": new_id})
+    return jsonify({"ok": True, "id": new_id, "created": True})
 
 
-@app.route("/api/models/releases", methods=["GET"])
-@admin_required
-def api_models_releases():
-    return jsonify({"ok": True, "items": database.list_model_releases(init_db_conn())})
-
+# ---- Model release and threat-policy APIs ----
 
 def _save_model_release_upload():
+    """Store an uploaded YOLO model and mark it as the active release."""
     if "file" not in request.files:
         return None, (jsonify({"ok": False, "error": "missing file"}), 400)
 
@@ -797,6 +888,7 @@ def _save_model_release_upload():
 
 
 def _serialize_model_release(release: dict) -> dict:
+    """Convert a model-release database row into an API response."""
     return {
         "id": release["id"],
         "version": release["version"],
@@ -810,6 +902,7 @@ def _serialize_model_release(release: dict) -> dict:
 @app.route("/api/models/release", methods=["POST"])
 @admin_required
 def api_models_release():
+    """Upload and activate a new central YOLO model release."""
     release, error_response = _save_model_release_upload()
     if error_response:
         return error_response
@@ -819,35 +912,45 @@ def api_models_release():
 @app.route("/api/models/current", methods=["GET"])
 @login_required
 def api_models_current():
+    """Return metadata for the active central model release."""
     release = database.get_active_model_release(init_db_conn())
     if not release:
         return jsonify({"ok": False, "error": "no released model"}), 404
     return jsonify({"ok": True, "model": _serialize_model_release(release)})
 
 
-@app.route("/api/models/download/<filename>", methods=["GET"])
+@app.route("/api/threat-policy", methods=["GET"])
 @login_required
-def api_models_download(filename: str):
-    safe_name = secure_filename(filename)
-    full = os.path.join(MODELS_DIR, safe_name)
-    if not os.path.isfile(full):
-        return jsonify({"error": "not found"}), 404
-    return send_from_directory(MODELS_DIR, safe_name, as_attachment=True)
+def api_threat_policy_get():
+    """Return the central threat policy for clients/admin UI."""
+    return jsonify({"ok": True, "policy": get_threat_policy()})
+
+
+@app.route("/api/threat-policy", methods=["POST"])
+@admin_required
+def api_threat_policy_update():
+    """Update the central threat policy from the admin model page."""
+    data = request.get_json(force=True, silent=True) or {}
+    return jsonify({"ok": True, "policy": set_threat_policy(data)})
 
 
 @app.route("/api/models/download/current", methods=["GET"])
 @login_required
 def api_models_download_current():
+    """Download the active central model file for client nodes."""
     release = database.get_active_model_release(init_db_conn())
     if not release:
         return jsonify({"ok": False, "error": "no released model"}), 404
     return send_from_directory(MODELS_DIR, release["filename"], as_attachment=True)
 
 
+# ---- Application entry point ----
+
 def run_server(host: str = "0.0.0.0", port: int = 5000, debug: bool = False):
+    """Initialise state and run the central Flask server."""
     init_server_state()
     app.run(host=host, port=port, debug=debug, use_reloader=False)
 
 
 if __name__ == "__main__":
-    run_server(port=int(os.environ.get("PORT", 5000)), debug=True)
+    run_server(port=int(os.environ.get("PORT", 5000)), debug=False)

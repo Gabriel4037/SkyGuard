@@ -1,3 +1,4 @@
+  // Shared text, endpoint constants, and translation strings for the client UI.
   // Backend endpoints
   const DETECT_ENDPOINT = '/api/drone/detect';
   const CLIP_SAVE_ENDPOINT = '/api/clip/save';
@@ -91,6 +92,23 @@
       lastModelCheck: "Model Check",
       lastSync: "Log Sync",
       autoSaveClip: "Auto-save clip",
+      protectedZone: "Protected zone",
+      cameraStatus: "Camera",
+      cameraOn: "On",
+      cameraOff: "Off",
+      detectionStatus: "Detection",
+      detectOnStatus: "On",
+      detectOffStatus: "Off",
+      zoneLeft: "Zone Left %",
+      zoneTop: "Zone Top %",
+      zoneWidth: "Zone Width %",
+      zoneHeight: "Zone Height %",
+      highThreatSeconds: "High Threat Sec",
+      intrusion: "Intrusion",
+      threatLow: "Low",
+      threatMedium: "Medium",
+      threatHigh: "High",
+      alertIntrusionTitle: "Intrusion Warning",
       clipSaveMode: "Save Mode",
       clipModeEvent: "Full event",
       clipModeFixed: "Fixed length",
@@ -320,18 +338,25 @@
     }
   };
 
+  // Read the selected UI language from browser storage.
   function getLang() {
     return localStorage.getItem('lang') || 'en';
   }
+
+  // Save the selected language and notify other scripts to refresh their labels.
   function setLang(lang) {
     localStorage.setItem('lang', lang);
     applyI18n();
     window.dispatchEvent(new CustomEvent('i18n-updated', { detail: { lang } }));
   }
+
+  // Translate one key, falling back to English and finally to the key itself.
   function t(key) {
     const lang = getLang();
     return (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
   }
+
+  // Apply translated text to every element that declares a data-i18n key.
   function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
       const key = el.getAttribute('data-i18n');

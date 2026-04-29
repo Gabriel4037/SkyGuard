@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="en">
+<!-- Central model manager: admins release YOLO weights and tune threat policy values. -->
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -67,7 +68,7 @@
       border:1px solid rgba(73,166,255,0.18);
     }
     .meta{line-height:1.7;font-size:14px}
-    input[type=file]{
+    input[type=file], input[type=number]{
       width:100%;
       padding:10px 12px;
       border:1px solid var(--line);
@@ -86,7 +87,7 @@
     <div class="row">
       <div>
         <h2>Model Center</h2>
-        <div class="muted">Release a `.pt` model.</div>
+        <div class="muted">Release an approved `.pt` model.</div>
       </div>
       <div class="row-end">
         <button id="backBtn" class="ghost">Back to Dashboard</button>
@@ -113,11 +114,43 @@
     <div class="hint">Release the approved `.pt` file here.</div>
   </div>
 
+  <div class="card">
+    <h3>Threat Policy</h3>
+    <div class="row top-gap">
+      <div>
+        <label class="muted">Detection confidence cap</label>
+        <input id="detectionConfidenceCap" type="number" min="5" max="95" step="1" value="40" />
+      </div>
+      <div>
+        <label class="muted">Medium confidence threshold</label>
+        <input id="mediumConfidence" type="number" min="5" max="99" step="1" value="75" />
+      </div>
+      <div>
+        <label class="muted">Medium box size %</label>
+        <input id="mediumBoxPct" type="number" min="0.1" max="80" step="0.1" value="8" />
+      </div>
+      <div>
+        <label class="muted">High threat time (seconds)</label>
+        <input id="highZoneSeconds" type="number" min="1" max="120" step="1" value="3" />
+      </div>
+      <div class="row-end">
+        <button id="savePolicyBtn">Save Policy</button>
+      </div>
+    </div>
+    <div id="policyMsg" class="muted msg-gap"></div>
+    <div class="hint">Clients pull this policy after login, similar to the current model release.</div>
+  </div>
+
   <script src="/static/auth.js"></script>
   <script>
     const { apiFetch, requireAdmin, safeReplace } = window.authApi || {};
     const currentMeta = document.getElementById('currentMeta');
     const releaseMsg = document.getElementById('releaseMsg');
+    const policyMsg = document.getElementById('policyMsg');
+    const detectionConfidenceCap = document.getElementById('detectionConfidenceCap');
+    const mediumConfidence = document.getElementById('mediumConfidence');
+    const mediumBoxPct = document.getElementById('mediumBoxPct');
+    const highZoneSeconds = document.getElementById('highZoneSeconds');
 
     document.getElementById('backBtn').addEventListener('click', () => {
       safeReplace('/index.html');
@@ -139,6 +172,22 @@
       } catch (_) {
         currentMeta.textContent = 'No released model yet.';
         currentMeta.className = 'meta bad';
+      }
+    }
+
+    async function loadThreatPolicy() {
+      try {
+        const res = await apiFetch('/api/threat-policy', { method: 'GET' });
+        const policy = res.policy || {};
+        detectionConfidenceCap.value = String(Math.round((policy.detection_confidence_cap ?? 0.4) * 100));
+        mediumConfidence.value = String(Math.round((policy.medium_confidence ?? 0.75) * 100));
+        mediumBoxPct.value = String(policy.medium_box_pct ?? 8);
+        highZoneSeconds.value = String(policy.high_zone_seconds ?? 3);
+        policyMsg.textContent = 'Policy loaded.';
+        policyMsg.className = 'good';
+      } catch (error) {
+        policyMsg.textContent = error.error || error.message || 'Unable to load threat policy.';
+        policyMsg.className = 'bad';
       }
     }
 
@@ -171,10 +220,33 @@
       }
     });
 
+    document.getElementById('savePolicyBtn').addEventListener('click', async () => {
+      try {
+        const payload = {
+          detection_confidence_cap: (Number(detectionConfidenceCap.value) || 40) / 100,
+          medium_confidence: (Number(mediumConfidence.value) || 75) / 100,
+          medium_box_pct: Number(mediumBoxPct.value) || 8,
+          high_zone_seconds: Number(highZoneSeconds.value) || 3
+        };
+        const res = await apiFetch('/api/threat-policy', {
+          method: 'POST',
+          body: payload
+        });
+        policyMsg.textContent = `Saved policy: detection cap ${Math.round(res.policy.detection_confidence_cap * 100)}%, medium ${Math.round(res.policy.medium_confidence * 100)}%, box ${res.policy.medium_box_pct}%, high after ${res.policy.high_zone_seconds}s`;
+        policyMsg.className = 'good';
+      } catch (error) {
+        policyMsg.textContent = error.error || error.message || 'Policy save failed';
+        policyMsg.className = 'bad';
+      }
+    });
+
     (async () => {
       try {
         const ok = await requireAdmin();
-        if (ok) await loadCurrentModel();
+        if (ok) {
+          await loadCurrentModel();
+          await loadThreatPolicy();
+        }
       } catch (_) {
         safeReplace('/login.html');
       }

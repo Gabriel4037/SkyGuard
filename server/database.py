@@ -6,18 +6,25 @@ from typing import Dict, List, Optional
 from werkzeug.security import generate_password_hash
 
 
+# Central SQLite database used by the admin server. It stores users, logs,
+# registered cameras, released models, and system settings.
 def utc_now_text() -> str:
+    """Return a compact UTC timestamp for database records."""
     return datetime.utcnow().isoformat(sep=" ", timespec="seconds")
 
 
 def ensure_column(cur, table: str, column: str, column_def: str):
+    """Add a column during lightweight schema migration if it is missing."""
     cur.execute(f"PRAGMA table_info({table})")
     cols = [row[1] for row in cur.fetchall()]
     if column not in cols:
         cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
 
 
+# ---- Database setup and schema migration ----
+
 def init_db(db_path: str) -> sqlite3.Connection:
+    """Open the central database and create required tables when missing."""
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -106,6 +113,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
 
 def ensure_logs_sync_columns(conn: sqlite3.Connection):
+    """Ensure older central databases have the sync-tracking columns."""
     cur = conn.cursor()
     ensure_column(cur, "logs", "sync_status", "TEXT DEFAULT 'pending'")
     ensure_column(cur, "logs", "synced_at", "TEXT")
@@ -114,9 +122,12 @@ def ensure_logs_sync_columns(conn: sqlite3.Connection):
 
 
 def create_default_admin(conn):
+    """Create the first demo admin account when the database is empty."""
     cur = conn.cursor()
-    cur.execute("SELECT id FROM users WHERE username = 'admin'")
-    if cur.fetchone() is not None:
+    cur.execute("SELECT COUNT(*) FROM users")
+    row = cur.fetchone()
+    existing_users = int(row[0] if row else 0)
+    if existing_users > 0:
         return
 
     cur.execute(
@@ -126,7 +137,10 @@ def create_default_admin(conn):
     conn.commit()
 
 
+# ---- System settings ----
+
 def ensure_default_settings(conn: sqlite3.Connection) -> None:
+    """Insert default settings used by the central admin UI."""
     cur = conn.cursor()
     cur.execute(
         """
@@ -138,6 +152,7 @@ def ensure_default_settings(conn: sqlite3.Connection) -> None:
 
 
 def get_setting(conn: sqlite3.Connection, key: str, default: Optional[str] = None) -> Optional[str]:
+    """Read one central system setting."""
     cur = conn.cursor()
     cur.execute("SELECT value FROM system_settings WHERE key = ?", (key,))
     row = cur.fetchone()
@@ -147,6 +162,7 @@ def get_setting(conn: sqlite3.Connection, key: str, default: Optional[str] = Non
 
 
 def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Insert or update one central system setting."""
     cur = conn.cursor()
     cur.execute(
         """
@@ -159,7 +175,10 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
+# ---- User records ----
+
 def insert_user(conn, username, password_hash, role="user"):
+    """Insert a central user and return the new id."""
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO users (username, password_hash, created_at, role) VALUES (?, ?, ?, ?)",
@@ -170,6 +189,7 @@ def insert_user(conn, username, password_hash, role="user"):
 
 
 def get_user_by_username(conn, username):
+    """Find a central user by username."""
     cur = conn.cursor()
     cur.execute("SELECT * FROM users WHERE username = ?", (username,))
     row = cur.fetchone()
@@ -177,6 +197,7 @@ def get_user_by_username(conn, username):
 
 
 def get_user_by_id(conn, user_id):
+    """Find a central user by id."""
     cur = conn.cursor()
     cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     row = cur.fetchone()
@@ -184,12 +205,14 @@ def get_user_by_id(conn, user_id):
 
 
 def update_last_login(conn, user_id):
+    """Record the latest successful login time for a user."""
     cur = conn.cursor()
     cur.execute("UPDATE users SET last_login = ? WHERE id = ?", (utc_now_text(), user_id))
     conn.commit()
 
 
 def list_users(conn):
+    """Return users for the central user-management table."""
     cur = conn.cursor()
     cur.execute("SELECT id, username, created_at, last_login, role FROM users ORDER BY id;")
     rows = cur.fetchall()
@@ -200,6 +223,7 @@ def list_users(conn):
 
 
 def count_users(conn) -> int:
+    """Count central users for the dashboard."""
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM users")
     row = cur.fetchone()
@@ -207,23 +231,29 @@ def count_users(conn) -> int:
 
 
 def update_user(conn, user_id: int, username: str, role: str):
+    """Update a central user's name and role."""
     cur = conn.cursor()
     cur.execute("UPDATE users SET username = ?, role = ? WHERE id = ?", (username, role, int(user_id)))
     conn.commit()
 
 
 def delete_user(conn, user_id: int):
+    """Delete a central user."""
     cur = conn.cursor()
     cur.execute("DELETE FROM users WHERE id = ?", (int(user_id),))
     conn.commit()
 
 
 def set_user_password_hash(conn, user_id: int, password_hash: str):
+    """Replace the stored central password hash for a user."""
     cur = conn.cursor()
     cur.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, int(user_id)))
     conn.commit()
 
 
+# ---- Central event logs ----
+
+# Create one central detection log row.
 def create_log(
     conn: sqlite3.Connection,
     time_text: str,
@@ -242,13 +272,25 @@ def create_log(
 
 
 def list_logs(conn: sqlite3.Connection, limit: int = 500) -> List[Dict]:
+    """Return central detection logs for review."""
     cur = conn.cursor()
     cur.execute("SELECT id, time, event, source, clip FROM logs ORDER BY id DESC LIMIT ?", (int(limit),))
     rows = cur.fetchall()
     return [{"id": r[0], "time": r[1], "event": r[2], "source": r[3], "clip": r[4]} for r in rows]
 
 
+def get_log_by_id(conn: sqlite3.Connection, log_id: int) -> Optional[Dict]:
+    """Find one central log row by id."""
+    cur = conn.cursor()
+    cur.execute("SELECT id, time, event, source, clip FROM logs WHERE id = ?", (int(log_id),))
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "time": row[1], "event": row[2], "source": row[3], "clip": row[4]}
+
+
 def count_logs(conn: sqlite3.Connection) -> int:
+    """Count central logs for the dashboard."""
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM logs")
     row = cur.fetchone()
@@ -256,6 +298,7 @@ def count_logs(conn: sqlite3.Connection) -> int:
 
 
 def update_log(conn: sqlite3.Connection, log_id: int, time_text: str, event: str, source: str, clip: str) -> None:
+    """Update one central event log."""
     cur = conn.cursor()
     cur.execute(
         "UPDATE logs SET time = ?, event = ?, source = ?, clip = ? WHERE id = ?",
@@ -265,12 +308,16 @@ def update_log(conn: sqlite3.Connection, log_id: int, time_text: str, event: str
 
 
 def delete_log(conn: sqlite3.Connection, log_id: int) -> None:
+    """Delete one central event log."""
     cur = conn.cursor()
     cur.execute("DELETE FROM logs WHERE id = ?", (int(log_id),))
     conn.commit()
 
 
+# ---- Camera registry ----
+
 def register_camera(conn: sqlite3.Connection, user_id: int, camera_name: str, camera_id: str) -> int:
+    """Insert a camera registered by a client user."""
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO cameras (user_id, camera_name, camera_id, created_at) VALUES (?, ?, ?, ?)",
@@ -281,6 +328,7 @@ def register_camera(conn: sqlite3.Connection, user_id: int, camera_name: str, ca
 
 
 def get_user_cameras(conn: sqlite3.Connection, user_id: int) -> List[Dict]:
+    """Return active cameras owned by one central user."""
     cur = conn.cursor()
     cur.execute(
         """
@@ -305,6 +353,7 @@ def get_user_cameras(conn: sqlite3.Connection, user_id: int) -> List[Dict]:
 
 
 def get_all_active_cameras(conn: sqlite3.Connection) -> List[Dict]:
+    """Return all active cameras with owner usernames."""
     cur = conn.cursor()
     cur.execute(
         """
@@ -330,13 +379,17 @@ def get_all_active_cameras(conn: sqlite3.Connection) -> List[Dict]:
 
 
 def count_active_cameras(conn: sqlite3.Connection) -> int:
+    """Count active registered cameras for the dashboard."""
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM cameras WHERE is_active = 1")
     row = cur.fetchone()
     return int(row[0] if row else 0)
 
 
+# ---- Model release tracking ----
+
 def create_model_release(conn: sqlite3.Connection, version: str, filename: str, notes: str = "") -> int:
+    """Insert a model release and mark older releases inactive."""
     cur = conn.cursor()
     cur.execute("UPDATE model_releases SET is_active = 0")
     cur.execute(
@@ -350,30 +403,8 @@ def create_model_release(conn: sqlite3.Connection, version: str, filename: str, 
     return cur.lastrowid
 
 
-def list_model_releases(conn: sqlite3.Connection) -> List[Dict]:
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT id, version, filename, notes, is_active, released_at
-        FROM model_releases
-        ORDER BY id DESC
-        """
-    )
-    rows = cur.fetchall()
-    return [
-        {
-            "id": r[0],
-            "version": r[1],
-            "filename": r[2],
-            "notes": r[3],
-            "is_active": bool(r[4]),
-            "released_at": r[5],
-        }
-        for r in rows
-    ]
-
-
 def get_active_model_release(conn: sqlite3.Connection) -> Optional[Dict]:
+    """Return the currently active model release, if one exists."""
     cur = conn.cursor()
     cur.execute(
         """

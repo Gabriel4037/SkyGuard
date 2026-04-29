@@ -1,3 +1,5 @@
+  // Client UI wiring: page navigation, settings modal, theme handling,
+  // and small status widgets around the detector workflow.
   // =======================
   // UI Refs + navigation
   // =======================
@@ -10,11 +12,13 @@
   const pageFile = document.getElementById('pageFile');
   const pageLogs = document.getElementById('pageLogs');
 
+  // Update the compact status label shown in the page header.
   function setStatus(text, ok=true) {
     statusText.textContent = text;
     statusText.style.color = ok ? 'var(--accent)' : 'var(--danger)';
   }
 
+  // Switch between dashboard, live camera, video file, and log pages.
   function showPage(which) {
     pageDashboard.classList.remove('active');
     pageLive.classList.remove('active');
@@ -49,6 +53,7 @@
   const autoClip = document.getElementById('autoClip');
   const clipMode = document.getElementById('clipMode');
   const clipSec = document.getElementById('clipSec');
+  const highThreatSeconds = document.getElementById('highThreatSeconds');
   const bgColor = document.getElementById('bgColor');
   const langSelect = document.getElementById('langSelect');
   const modelStatusHint = document.getElementById('modelStatusHint');
@@ -56,6 +61,7 @@
   let settingsSaveTimer = null;
   let settingsHydrating = false;
 
+  // Wrapper for authenticated JSON calls. Falls back to fetch for early page load.
   function apiJson(url, options) {
     if (window.authApi && typeof window.authApi.apiFetch === 'function') {
       return window.authApi.apiFetch(url, options);
@@ -67,6 +73,7 @@
     });
   }
 
+  // Format server timestamps in the user's local browser format.
   function formatDateTime(value) {
     if (!value) return '-';
     const dt = new Date(value);
@@ -74,35 +81,58 @@
     return dt.toLocaleString();
   }
 
+  // Keep model/policy messages in one small hint area in the settings modal.
   function setModelHint(text) {
     if (modelStatusHint) modelStatusHint.textContent = text || '';
   }
 
+  // Show read-only threat policy values controlled by the central admin.
+  function updatePolicyHint(settings) {
+    const cap = Math.round(Number(settings?.detection_confidence_cap ?? 0.4) * 100);
+    const medium = Math.round(Number(settings?.medium_confidence ?? 0.75) * 100);
+    setModelHint(`Admin policy: detection cap ${cap}%, medium confidence ${medium}%.`);
+  }
+
+  // Collect editable settings from the modal and clamp values to safe ranges.
   function collectClientSettings() {
+    const detectionCap = Math.max(0.05, Math.min(0.95, Number(currentClientSettings?.detection_confidence_cap ?? 0.4)));
     return {
       fps: Math.max(1, Math.min(15, Number(fpsInput.value) || 6)),
-      conf: Math.max(0.05, Math.min(0.95, Number(confInput.value) || 0.4)),
+      conf: Math.max(0.05, Math.min(detectionCap, Number(confInput.value) || 0.4)),
       max_dim: Math.max(320, Math.min(1280, Number(maxDimInput.value) || 640)),
       auto_clip: !!autoClip.checked,
       clip_mode: clipMode.value === 'fixed' ? 'fixed' : 'event',
       clip_sec: Math.max(3, Math.min(60, Number(clipSec.value) || 8)),
+      high_threat_seconds: Math.max(1, Math.min(120, Number(currentClientSettings?.high_threat_seconds ?? 3))),
+      detection_confidence_cap: detectionCap,
+      medium_confidence: Number(currentClientSettings?.medium_confidence ?? 0.75),
+      medium_box_pct: Number(currentClientSettings?.medium_box_pct ?? 8),
       model_check_interval_seconds: Math.max(10, Math.min(3600, Number(modelCheckIntervalInput.value) || 30))
     };
   }
 
+  // Fill the settings modal from the saved backend settings.
   function applyClientSettings(settings) {
     settingsHydrating = true;
     currentClientSettings = { ...(settings || {}) };
+    const detectionCap = Math.max(0.05, Math.min(0.95, Number(settings?.detection_confidence_cap ?? 0.4)));
     fpsInput.value = String(settings?.fps ?? 6);
-    confInput.value = String(settings?.conf ?? 0.4);
+    confInput.max = String(detectionCap);
+    confInput.title = `Admin detection confidence cap: ${Math.round(detectionCap * 100)}%`;
+    confInput.value = String(Math.min(Number(settings?.conf ?? 0.4), detectionCap));
     maxDimInput.value = String(settings?.max_dim ?? 640);
     modelCheckIntervalInput.value = String(settings?.model_check_interval_seconds ?? 30);
     autoClip.checked = !!settings?.auto_clip;
     clipMode.value = settings?.clip_mode === 'fixed' ? 'fixed' : 'event';
     clipSec.value = String(settings?.clip_sec ?? 8);
+    highThreatSeconds.value = String(settings?.high_threat_seconds ?? 3);
+    highThreatSeconds.readOnly = true;
+    highThreatSeconds.title = 'Controlled by central admin threat policy';
+    updatePolicyHint(settings || {});
     settingsHydrating = false;
   }
 
+  // Load saved settings from the local client Flask service.
   async function refreshClientSettings() {
     try {
       const payload = await apiJson('/api/client/settings', { method: 'GET' });
@@ -117,6 +147,7 @@
     }
   }
 
+  // Tell detection/camera scripts that runtime settings have changed.
   function emitSettingsChanged(settings, previous) {
     window.dispatchEvent(new CustomEvent('client-settings-changed', {
       detail: {
@@ -126,6 +157,7 @@
     }));
   }
 
+  // Save settings with a small debounce so inputs do not spam the API.
   async function saveClientSettings({ immediate = false } = {}) {
     if (settingsHydrating) return;
     if (settingsSaveTimer) {
@@ -160,6 +192,7 @@
     }, 250);
   }
 
+  // Render current and pending model versions in the settings modal.
   function renderModelStatus(status) {
     const current = status?.current || {};
     const pending = status?.pending || null;
@@ -175,12 +208,10 @@
     if (lastSyncAt) {
       lastSyncAt.value = formatDateTime(status?.last_sync_at);
     }
-    setModelHint(
-      status?.message ||
-      'Auto check and auto sync.'
-    );
+    if (status?.message) setModelHint(status.message);
   }
 
+  // Ask the local backend for model status and pending update state.
   async function refreshModelStatus() {
     try {
       const payload = await apiJson('/api/client/model/status', { method: 'GET' });
@@ -195,12 +226,15 @@
     }
   }
 
+  // Open settings and refresh dynamic fields each time.
   function openSettings() {
     settingsBackdrop.classList.add('show');
     settingsBackdrop.setAttribute('aria-hidden', 'false');
     refreshClientSettings();
     refreshModelStatus();
   }
+
+  // Close the settings modal without changing the current page.
   function closeSettings() {
     settingsBackdrop.classList.remove('show');
     settingsBackdrop.setAttribute('aria-hidden', 'true');
@@ -210,9 +244,12 @@
   settingsBackdrop.addEventListener('click', (e) => { if (e.target === settingsBackdrop) closeSettings(); });
 
   // Theme + language persistence
+  // Apply the chosen background color through a CSS variable.
   function applyBgColor(hex) {
     document.documentElement.style.setProperty('--bg', hex);
   }
+
+  // Restore saved theme/language choices on page load.
   function initThemeLang() {
     const savedBg = localStorage.getItem('bg') || '#0b0f17';
     bgColor.value = savedBg;
@@ -241,7 +278,8 @@
     confInput,
     maxDimInput,
     modelCheckIntervalInput,
-    clipSec
+    clipSec,
+    highThreatSeconds
   ].forEach((input) => {
     if (!input) return;
     input.addEventListener('input', () => saveClientSettings());
@@ -271,6 +309,8 @@
   // Toast Alerts
   // =======================
   const toastWrap = document.getElementById('toastWrap');
+
+  // Small notification box used for settings and detector messages.
   function toast(title, body) {
     const el = document.createElement('div');
     el.className = 'toast';
@@ -295,6 +335,7 @@
   // =======================
   document.getElementById('btnClearLogs').addEventListener('click', () => logBody.innerHTML = '');
 
+  // Convert timestamps into a compact table-friendly time string.
   function fmtHHMMSS(ts) {
     const d = new Date(ts);
     const hh = String(d.getHours()).padStart(2,'0');
@@ -303,6 +344,7 @@
     return `${hh}:${mm}:${ss}`;
   }
 
+  // Add one row to the recent log table on the dashboard.
   function addRecentLogRow({ timeText, event, source='-', clipText='-', pendingId=null }) {
     const tr = document.createElement('tr');
 
@@ -331,6 +373,7 @@
 
   let isAdmin = false;
 
+  // Show or hide admin-only controls after the current role is known.
   function setAdminState(next) {
     isAdmin = !!next;
   }

@@ -13,6 +13,8 @@ import numpy as np
 import database
 
 
+# Runtime wrapper for YOLO inference. The model is loaded lazily so the client
+# UI can start before the heavy detector is needed.
 def resource_path(relative_path: str) -> str:
     """Support PyInstaller builds."""
     if getattr(sys, "frozen", False):
@@ -30,11 +32,15 @@ _model_lock = threading.RLock()
 _loaded_model_info: Dict[str, Any] = {}
 
 
+# ---- Model metadata and loading ----
+
 def _ensure_parent(path: str) -> None:
+    """Create a file's parent folder before writing metadata."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
 
 def read_model_meta() -> Optional[Dict[str, Any]]:
+    """Read saved model metadata if it exists."""
     if not os.path.isfile(MODEL_META_PATH):
         return None
     try:
@@ -45,12 +51,14 @@ def read_model_meta() -> Optional[Dict[str, Any]]:
 
 
 def write_model_meta(info: Dict[str, Any]) -> None:
+    """Persist metadata for the model currently loaded by the client."""
     _ensure_parent(MODEL_META_PATH)
     with open(MODEL_META_PATH, "w", encoding="utf-8") as handle:
         json.dump(info, handle, indent=2)
 
 
 def resolve_initial_model_path() -> str:
+    """Choose the saved model path first, otherwise the bundled default."""
     meta = read_model_meta()
     if meta:
         path = meta.get("path") or ""
@@ -60,6 +68,7 @@ def resolve_initial_model_path() -> str:
 
 
 def build_model_info(model_path: str, *, version: Optional[str] = None, filename: Optional[str] = None) -> Dict[str, Any]:
+    """Build a small metadata dictionary for a model file."""
     path = os.path.abspath(model_path)
     stat_size = os.path.getsize(path) if os.path.isfile(path) else None
     return {
@@ -72,6 +81,7 @@ def build_model_info(model_path: str, *, version: Optional[str] = None, filename
 
 
 def get_loaded_model_info() -> Dict[str, Any]:
+    """Return loaded model metadata without forcing a model load."""
     with _model_lock:
         if _loaded_model_info:
             return dict(_loaded_model_info)
@@ -80,6 +90,7 @@ def get_loaded_model_info() -> Dict[str, Any]:
 
 
 def load_model(model_path: Optional[str] = None, *, force_reload: bool = False, version: Optional[str] = None):
+    """Load the YOLO model lazily and reuse it while the path is unchanged."""
     global _model, _loaded_model_info
 
     target_path = os.path.abspath(model_path or resolve_initial_model_path())
@@ -108,11 +119,15 @@ def load_model(model_path: Optional[str] = None, *, force_reload: bool = False, 
 
 
 def reload_model(model_path: str, *, version: Optional[str] = None) -> Dict[str, Any]:
+    """Force YOLO to reload from a new model file."""
     load_model(model_path, force_reload=True, version=version)
     return get_loaded_model_info()
 
 
+# ---- Frame decoding and inference output conversion ----
+
 def decode_base64_image(data_url: str):
+    """Convert a browser base64 image payload into an OpenCV frame."""
     if data_url.startswith("data:"):
         _, b64 = data_url.split(",", 1)
     else:
@@ -122,6 +137,7 @@ def decode_base64_image(data_url: str):
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
+# Convert raw YOLO results into plain dictionaries for the browser response.
 def results_to_list(
     results,
     original_frame,
@@ -188,6 +204,9 @@ def results_to_list(
     return detections
 
 
+# ---- Main detection entry point ----
+
+# Main detection helper used by the Flask /api/drone/detect route.
 def detect_frame(
     frame,
     *,

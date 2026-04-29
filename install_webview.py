@@ -8,27 +8,33 @@ import urllib.request
 from pathlib import Path
 
 
+# Optional Windows setup helper. It installs pywebview plus the native runtimes
+# needed for the desktop launchers when a clean machine is missing them.
 WEBVIEW2_BOOTSTRAPPER_URL = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 VC_REDIST_X64_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
 VC_REDIST_X86_URL = "https://aka.ms/vs/17/release/vc_redist.x86.exe"
 
 
 def run(cmd, check=True):
+    """Run a command and show it before execution."""
     print(f"\n> {' '.join(cmd)}")
     return subprocess.run(cmd, check=check)
 
 
 def run_capture(cmd):
+    """Run a command and capture output for troubleshooting."""
     print(f"\n> {' '.join(cmd)}")
     return subprocess.run(cmd, check=False, capture_output=True, text=True)
 
 
 def is_uv_managed_pip_error(result):
+    """Detect pip errors caused by uv-managed Python environments."""
     text = f"{result.stdout}\n{result.stderr}".lower()
     return "externally-managed-environment" in text or "managed by uv" in text
 
 
 def install_with_uv(package_name):
+    """Install a Python package through uv when normal pip is blocked."""
     uv = shutil.which("uv")
     if not uv:
         print("\n`uv` is not available in PATH, so the uv fallback cannot be used.")
@@ -69,6 +75,7 @@ def install_python_package():
 
 
 def import_check():
+    """Confirm that pywebview can be imported by this Python interpreter."""
     try:
         import webview  # noqa: F401
 
@@ -80,6 +87,7 @@ def import_check():
 
 
 def detect_webview2_runtime():
+    """Check whether Microsoft Edge WebView2 Runtime is installed."""
     if platform.system() != "Windows":
         return True
 
@@ -94,6 +102,7 @@ def detect_webview2_runtime():
 
 
 def detect_vc_redist():
+    """Check whether the Microsoft Visual C++ runtime is installed."""
     if platform.system() != "Windows":
         return True
 
@@ -108,6 +117,7 @@ def detect_vc_redist():
 
 
 def install_webview2_with_winget():
+    """Try installing WebView2 through Windows Package Manager."""
     winget = shutil.which("winget")
     if not winget:
         return False
@@ -131,6 +141,7 @@ def install_webview2_with_winget():
 
 
 def install_webview2_with_bootstrapper():
+    """Download and run Microsoft's WebView2 bootstrapper."""
     tmp_dir = Path(tempfile.gettempdir())
     installer = tmp_dir / "MicrosoftEdgeWebView2Setup.exe"
 
@@ -145,6 +156,7 @@ def install_webview2_with_bootstrapper():
 
 
 def install_vc_redist_with_winget():
+    """Try installing Visual C++ Redistributable through winget."""
     winget = shutil.which("winget")
     if not winget:
         return False
@@ -175,6 +187,7 @@ def install_vc_redist_with_winget():
 
 
 def install_vc_redist_with_bootstrapper():
+    """Download and run the Visual C++ Redistributable installers."""
     tmp_dir = Path(tempfile.gettempdir())
     installers = [
         (VC_REDIST_X64_URL, tmp_dir / "vc_redist.x64.exe"),
@@ -194,6 +207,7 @@ def install_vc_redist_with_bootstrapper():
 
 
 def install_windows_runtime():
+    """Install WebView2 on Windows if it is missing."""
     if platform.system() != "Windows":
         print("\nNon-Windows OS detected: no WebView2 runtime installation needed.")
         return True
@@ -211,6 +225,7 @@ def install_windows_runtime():
 
 
 def install_windows_cpp_runtime():
+    """Install Visual C++ runtime libraries on Windows if missing."""
     if platform.system() != "Windows":
         print("\nNon-Windows OS detected: no VC++ runtime installation needed.")
         return True
@@ -228,6 +243,7 @@ def install_windows_cpp_runtime():
 
 
 def main():
+    """Run all setup checks required by the desktop webview launchers."""
     print("Installing support for `import webview`...")
     print(f"Python: {sys.executable}")
     print(f"Platform: {platform.platform()}")

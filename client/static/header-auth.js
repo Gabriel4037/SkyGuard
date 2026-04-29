@@ -1,5 +1,6 @@
 (function () {
-    // choose check function (prefer authApi.refreshCurrentUser)
+    // Header session check used by every protected client page.
+    // Choose check function (prefer authApi.refreshCurrentUser).
     const checkUserFn = (window.authApi && window.authApi.refreshCurrentUser) || window.refreshCurrentUser || (async () => {
       if (window.authMe) {
         const r = await window.authMe();
@@ -8,7 +9,7 @@
       return null;
     });
 
-    // single redirect guard
+    // Single redirect guard.
     window.__auth_redirecting = window.__auth_redirecting || false;
     function safeReplace(url) {
       if (window.__auth_redirecting) return;
@@ -18,7 +19,7 @@
       }, 120);
     }
 
-    // main init: check auth and update header UI
+    // Main init: check auth and update header UI.
     (async function initAuthCheck() {
       try {
         // slight delay to allow cookie/session stabilization
