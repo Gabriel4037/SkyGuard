@@ -1,5 +1,7 @@
 # SkyGuard
 
+![SkyGuard banner](assets/skyguard-banner.png)
+
 SkyGuard is a final year project developed for the Hong Kong Metropolitan University, School of Science and Technology, Bachelor of Science with Honours in Computer Science programme.
 
 The project presents a LAN-based drone detection and monitoring system designed to support practical event logging, live monitoring, and centralised model management in a prototype deployment environment.
