@@ -77,8 +77,10 @@ The design separates detection execution from administrative control, allowing d
 
 ## License
 
-This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License (`CC BY-NC 4.0`).
+This project is an academic Final Year Project developed for Hong Kong Metropolitan University (HKMU).
 
-This means the project may be shared and studied for non-commercial purposes with appropriate attribution, but it is not intended for direct commercial reuse.
+Copyright (c) 2026 Hong Kong Metropolitan University. All rights reserved.
 
-Please refer to the [`LICENSE`](LICENSE) file for the full license text.
+No part of this project may be copied, redistributed, modified, or used for commercial purposes without prior written permission from Hong Kong Metropolitan University and the project author(s), except where permitted by applicable law or academic assessment requirements.
+
+Please refer to the [`LICENSE`](LICENSE) file for the full notice.
