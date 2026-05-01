@@ -77,6 +77,7 @@ The design separates detection execution from administrative control, allowing d
 - The active application flow is contained in `client/` and `server/`.
 - The default client model file is `client/models/best_v11.pt`.
 - The YOLO `.pt` model file is not included in this repository. Download the YOLOv11x drone detection weights from the model download page listed in the model attribution section and place the `.pt` file at `client/models/best_v11.pt`.
+- On first setup, the admin should upload the downloaded `.pt` file in the central server Model Manager page to create the first active model release for client nodes.
 - For complete setup and usage instructions, see [`USER_GUIDE.md`](USER_GUIDE.md).
 
 ## Model Attribution

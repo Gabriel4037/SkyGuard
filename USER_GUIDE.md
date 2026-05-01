@@ -113,7 +113,50 @@ Password: admin
 
 For a real demonstration, change this password after first login.
 
-## 6. Start the Client Detector
+## 6. Create the First Model Release
+
+Before client detection can work, SkyGuard needs a YOLO `.pt` model.
+
+For first setup, use the central server Model Manager page to release the model:
+
+1. Download the YOLOv11x drone detection weights from:
+
+```text
+https://huggingface.co/doguilmak/Drone-Detection-YOLOv11x/tree/main/weight
+```
+
+2. Open the central server application.
+3. Log in as admin.
+4. Go to:
+
+```text
+model_manager.html
+```
+
+5. Upload the downloaded `.pt` file.
+6. Enter a version name, for example:
+
+```text
+v1.0.0
+```
+
+7. Submit the release.
+
+After release, the central server stores the model in:
+
+```text
+server/models/
+```
+
+Client nodes can then download the active model from the central server during sync/model update.
+
+Optional local shortcut: if you want the client to detect immediately before syncing from the server, also place the model at:
+
+```text
+client/models/best_v11.pt
+```
+
+## 7. Start the Client Detector
 
 Open a second PowerShell or Command Prompt window.
 
@@ -137,7 +180,7 @@ python client/client_launcher.py
 
 The client detector opens in its own desktop webview window. The local client Flask service uses an available local port automatically.
 
-## 7. Connect Client to Server
+## 8. Connect Client to Server
 
 On the client login page:
 
@@ -163,7 +206,7 @@ http://192.168.1.20:5000
 4. Click the connection test button.
 5. Log in with a valid central server account.
 
-## 8. Basic Admin Workflow
+## 9. Basic Admin Workflow
 
 In the central server application, the admin can:
 
@@ -186,7 +229,7 @@ Useful admin pages:
 /model_manager.html
 ```
 
-## 9. Basic Client Workflow
+## 10. Basic Client Workflow
 
 In the client detector application, a user can:
 
@@ -207,7 +250,7 @@ client/models/best_v11.pt
 
 If this file is missing, the client interface can still open, but detection will fail when a frame is processed.
 
-## 10. Model Management
+## 11. Model Management
 
 There are two model setup methods:
 
@@ -232,7 +275,7 @@ After upload:
 3. The client downloads the active server model.
 4. The client applies the new model when detection is idle.
 
-## 11. Log and Clip Sync
+## 12. Log and Clip Sync
 
 Detection events are first saved locally on the client.
 
@@ -244,7 +287,7 @@ Central logs can be reviewed from:
 admin_logs.html
 ```
 
-## 12. Live Camera Monitoring
+## 13. Live Camera Monitoring
 
 Live camera monitoring works through the central admin monitor page.
 
@@ -262,7 +305,7 @@ Monitor page:
 admin_monitor.html
 ```
 
-## 13. Runtime Files
+## 14. Runtime Files
 
 SkyGuard creates runtime files while running.
 
@@ -284,7 +327,7 @@ server/models/
 
 These are ignored by Git because they contain local databases, clips, settings, and large model files.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 ### Problem: Detection does not start
 
@@ -293,6 +336,8 @@ Check that the model exists at:
 ```text
 client/models/best_v11.pt
 ```
+
+Or release a model from the central server Model Manager page, then run client sync/model update.
 
 ### Problem: GitHub does not contain the model
 
@@ -328,7 +373,7 @@ Check that:
 - Internet connection is available
 - `pip install -r requirements.txt` was run from the project root
 
-## 15. Model Attribution
+## 16. Model Attribution
 
 SkyGuard uses a YOLOv11x drone detection model based on:
 
