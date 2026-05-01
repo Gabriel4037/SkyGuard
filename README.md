@@ -76,6 +76,19 @@ The design separates detection execution from administrative control, allowing d
 - The current implementation is intended for prototype and academic demonstration use.
 - The system currently uses Flask's built-in server and SQLite for persistence.
 - The active application flow is contained in `client/` and `server/`.
+- The default client model file is `client/models/best_v11.pt`.
+- The YOLO `.pt` model file is not included in this repository. Download the YOLOv11x drone detection weights from the model download page listed in the model attribution section and place the `.pt` file at `client/models/best_v11.pt`.
+
+## Model Attribution
+
+SkyGuard uses a YOLOv11x drone detection model based on the following open-source project:
+
+Doguilmak, `Drone-Detection-YOLOv11x`  
+https://github.com/doguilmak/Drone-Detection-YOLOv11x
+
+Model weights download page: https://huggingface.co/doguilmak/Drone-Detection-YOLOv11x/tree/main/weight
+
+The original project is released under the MIT License. The model is used in SkyGuard for academic demonstration and prototype drone-detection purposes. SkyGuard integrates the model into a separate client-server monitoring system; the original model training work belongs to the original author.
 
 ## License
 
