@@ -68,25 +68,9 @@ Download the YOLOv11x drone detection weights from:
 https://huggingface.co/doguilmak/Drone-Detection-YOLOv11x/tree/main/weight
 ```
 
-After downloading the `.pt` file, rename it to:
+Keep the downloaded `.pt` file on your computer. It will be uploaded through the central server Model Manager page in the first model release step.
 
-```text
-best_v11.pt
-```
-
-Place it in:
-
-```text
-client/models/best_v11.pt
-```
-
-Final expected path:
-
-```text
-SkyGuard/client/models/best_v11.pt
-```
-
-Important: do not commit the `.pt` model file to GitHub. It is intentionally ignored by `.gitignore`.
+Important: do not commit the `.pt` model file to GitHub. Model files are intentionally ignored by `.gitignore`.
 
 ## 5. Start the Central Server
 
@@ -119,28 +103,22 @@ Before client detection can work, SkyGuard needs a YOLO `.pt` model.
 
 For first setup, use the central server Model Manager page to release the model:
 
-1. Download the YOLOv11x drone detection weights from:
-
-```text
-https://huggingface.co/doguilmak/Drone-Detection-YOLOv11x/tree/main/weight
-```
-
-2. Open the central server application.
-3. Log in as admin.
-4. Go to:
+1. Open the central server application.
+2. Log in as admin.
+3. Go to:
 
 ```text
 model_manager.html
 ```
 
-5. Upload the downloaded `.pt` file.
-6. Enter a version name, for example:
+4. Upload the downloaded `.pt` file from step 4.
+5. Enter a version name, for example:
 
 ```text
 v1.0.0
 ```
 
-7. Submit the release.
+6. Submit the release.
 
 After release, the central server stores the model in:
 
@@ -149,12 +127,6 @@ server/models/
 ```
 
 Client nodes can then download the active model from the central server during sync/model update.
-
-Optional local shortcut: if you want the client to detect immediately before syncing from the server, also place the model at:
-
-```text
-client/models/best_v11.pt
-```
 
 ## 7. Start the Client Detector
 
@@ -205,6 +177,7 @@ http://192.168.1.20:5000
 
 4. Click the connection test button.
 5. Log in with a valid central server account.
+6. Run sync/model update from the client interface before starting detection so the client downloads the active model release.
 
 ## 9. Basic Admin Workflow
 
@@ -245,35 +218,38 @@ In the client detector application, a user can:
 Detection uses:
 
 ```text
-client/models/best_v11.pt
+the active model downloaded from the central server
 ```
 
-If this file is missing, the client interface can still open, but detection will fail when a frame is processed.
+If no model has been released on the central server and no local fallback model exists, the client interface can still open, but detection will fail when a frame is processed.
 
 ## 11. Model Management
 
 There are two model setup methods:
 
-### Method A: Local Default Model
+### Method A: Central Model Release
 
-Place the model at:
+An admin uploads a `.pt` model from the central server Model Manager page.
+
+After upload:
+
+```text
+server/models/
+```
+
+Client nodes then download the active server model during sync/model update and apply it when detection is idle.
+
+This is the recommended setup method.
+
+### Method B: Optional Local Fallback
+
+If you want a client to run detection without downloading the model from the central server, place the model at:
 
 ```text
 client/models/best_v11.pt
 ```
 
-This allows the client to run detection directly.
-
-### Method B: Central Model Release
-
-An admin can upload a `.pt` model from the central server Model Manager page.
-
-After upload:
-
-1. The server stores the model in `server/models/`.
-2. The client checks for model updates.
-3. The client downloads the active server model.
-4. The client applies the new model when detection is idle.
+This is optional and is mainly useful for offline testing.
 
 ## 12. Log and Clip Sync
 
@@ -331,13 +307,13 @@ These are ignored by Git because they contain local databases, clips, settings, 
 
 ### Problem: Detection does not start
 
-Check that the model exists at:
+Check that a model has been released from the central server Model Manager page, then run client sync/model update.
+
+Optional fallback: check that the model exists at:
 
 ```text
 client/models/best_v11.pt
 ```
-
-Or release a model from the central server Model Manager page, then run client sync/model update.
 
 ### Problem: GitHub does not contain the model
 
