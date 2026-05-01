@@ -28,7 +28,6 @@ The design separates detection execution from administrative control, allowing d
 - Detection results are used live for overlays, alerts, event timing, and monitor updates.
 - Event logs are intentionally minimal and store only core operational fields such as time, event, source, and clip reference.
 - Event clips may be stored locally on the client node and synchronised to the central server.
-- Detection crops are not saved.
 - Bounding-box metadata is not persisted to local storage or central logs.
 
 ## Technical Stack
@@ -78,6 +77,7 @@ The design separates detection execution from administrative control, allowing d
 - The active application flow is contained in `client/` and `server/`.
 - The default client model file is `client/models/best_v11.pt`.
 - The YOLO `.pt` model file is not included in this repository. Download the YOLOv11x drone detection weights from the model download page listed in the model attribution section and place the `.pt` file at `client/models/best_v11.pt`.
+- For complete setup and usage instructions, see [`USER_GUIDE.md`](USER_GUIDE.md).
 
 ## Model Attribution
 
